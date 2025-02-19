@@ -1,0 +1,20 @@
+{
+  "name": "advanced-dex-arbitrage-bot",
+  "version": "1.0.0",
+  "description": "Advanced DEX arbitrage bot with flash loans and MEV protection",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "ethers": "^5.7.2",
+    "dotenv": "^16.0.3",
+    "axios": "^1.3.4",
+    "bignumber.js": "^9.1.1",
+    "web3": "^1.9.0",
+    "ws": "^8.13.0"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}
