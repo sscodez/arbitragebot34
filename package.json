@@ -1,7 +1,7 @@
 {
-  "name": "advanced-dex-arbitrage-bot",
+  "name": "dex-arbitrage-bot",
   "version": "1.0.0",
-  "description": "Advanced DEX arbitrage bot with flash loans and MEV protection",
+  "description": " DEX arbitrage bot with flash loans and MEV protection",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
