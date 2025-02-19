@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> DEX Arbitrage Bot Console</title>
+    <style>
+        :root {
+            --bg-color: #0a0a0a;
+            --text-color: #e0e0e0;
+            --success-color: #4caf50;
+            --error-color: #f44336;
+            --header-bg: #1a1a1a;
+            --console-bg: #141414;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background-color: var(--header-bg);
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stats {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .stat-item {
+            background-color: var(--console-bg);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            opacity: 0.7;
+        }
+
+        .stat-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        .console-container {
+            flex: 1;
+            padding: 1rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .console {
+            background-color: var(--console-bg);
+            border-radius: 6px;
+            padding: 1rem;
+            height: calc(100vh - 160px);
+            overflow-y: auto;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .log-entry {
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            border-radius: 4px;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        .log-entry:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .log-timestamp {
+            color: #666;
+            margin-right: 0.5rem;
+        }
+
+        .log-type-info {
+            color: var(--text-color);
+        }
+
+        .log-type-error {
+            color: var(--error-color);
+        }
+
+        .log-type-success {
+            color: var(--success-color);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-color);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #444;
+        }
+
+        /* Controls */
+        .controls {
+            padding: 1rem;
+            background-color: var(--header-bg);
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        .control-btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 4px;
+            background-color: #2196f3;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .control-btn:hover {
+            background-color: #1976d2;
+        }
+
+        .control-btn.clear {
+            background-color: #f44336;
+        }
+
+        .control-btn.clear:hover {
+            background-color: #d32f2f;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>DEX Arbitrage Bot Console</h1>
+            <div class="stats">
+                <div class="stat-item">
+                    <span class="stat-label">Total Trades</span>
+                    <span class="stat-value" id="totalTrades">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Profit (USDT)</span>
+                    <span class="stat-value" id="totalProfit">0.00</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Status</span>
+                    <span class="stat-value" id="botStatus">Running</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="controls">
+        <button class="control-btn" id="pauseBtn">Pause</button>
+        <button class="control-btn clear" id="clearBtn">Clear Console</button>
+        <button class="control-btn" id="exportBtn">Export Logs</button>
+    </div>
+
+    <div class="console-container">
+        <div class="console" id="console"></div>
+    </div>
+
+    <script>
+        let totalTrades = 0;
+        let totalProfit = 0;
+        let isPaused = false;
+
+        const consoleElement = document.getElementById('console');
+        const totalTradesElement = document.getElementById('totalTrades');
+        const totalProfitElement = document.getElementById('totalProfit');
+        const botStatusElement = document.getElementById('botStatus');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const exportBtn = document.getElementById('exportBtn');
+
+        // WebSocket connection
+        const ws = new WebSocket(`ws://${window.location.host}`);
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'init') {
+                // Initialize console with existing logs
+                consoleElement.innerHTML = '';
+                data.logs.forEach(addLogEntry);
+            } else {
+                addLogEntry(data);
+            }
+
+            // Update stats if it's a successful trade
+            if (data.message.includes('Successful arbitrage')) {
+                totalTrades++;
+                totalTradesElement.textContent = totalTrades;
+                
+                // Extract profit amount from message
+                const profitMatch = data.message.match(/(\d+(\.\d+)?)\s*USDT profit/);
+                if (profitMatch) {
+                    totalProfit += parseFloat(profitMatch[1]);
+                    totalProfitElement.textContent = totalProfit.toFixed(2);
+                }
+            }
+        };
+
+        function addLogEntry(log) {
+            if (isPaused) return;
+
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-type-${log.type}`;
+            
+            const timestamp = document.createElement('span');
+            timestamp.className = 'log-timestamp';
+            timestamp.textContent = new Date(log.timestamp).toLocaleTimeString();
+            
+            const message = document.createElement('span');
+            message.className = 'log-message';
+            message.textContent = log.message;
+            
+            entry.appendChild(timestamp);
+            entry.appendChild(message);
+            
+            consoleElement.appendChild(entry);
+            consoleElement.scrollTop = consoleElement.scrollHeight;
+        }
+
+        // Button handlers
+        pauseBtn.addEventListener('click', () => {
+            isPaused = !isPaused;
+            pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+            botStatusElement.textContent = isPaused ? 'Paused' : 'Running';
+        });
+
+        clearBtn.addEventListener('click', () => {
+            consoleElement.innerHTML = '';
+        });
+
+        exportBtn.addEventListener('click', () => {
+            const logs = Array.from(consoleElement.children).map(entry => {
+                return {
+                    timestamp: entry.querySelector('.log-timestamp').textContent,
+                    message: entry.querySelector('.log-message').textContent,
+                    type: entry.classList.contains('log-type-error') ? 'error' : 'info'
+                };
+            });
+
+            const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `arbitrage-bot-logs-${new Date().toISOString()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        // Reconnection logic
+        ws.onclose = () => {
+            botStatusElement.textContent = 'Disconnected';
+            setTimeout(() => {
+                window.location.reload();
+            }, 5000);
+        };
+    </script>
+</body>
+</html>
