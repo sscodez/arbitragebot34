@@ -35,7 +35,7 @@ const Navbar: React.FC<NavbarProps> = ({ onConnect, walletAddress, botStatus, rp
                   />
                 </svg>
               </div>
-              <span className="text-xl font-bold text-primary">DEX Arbitrage</span>
+              <span className="text-xl font-bold text-primary">Sass Dex Arbitrage</span>
             </div>
             <div className="hidden md:flex items-center space-x-4 text-sm">
               <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-secondary">

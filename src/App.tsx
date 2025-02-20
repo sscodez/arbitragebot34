@@ -272,32 +272,44 @@ function App(): JSX.Element {
   // Update prices and check for opportunities
   const updatePrices = async () => {
     if (!dexService || !selectedPair) {
+      console.log('DexService or selected pair not initialized');
       return;
     }
 
     try {
+      addLog('info', `Fetching current prices for ${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}...`);
       const prices = await dexService.getCurrentPrices(
         selectedPair.fromToken,
         selectedPair.toToken,
-        tradingConfig.minTradeAmount
+        tradingConfig.minTradeAmount.toString()
       );
       setCurrentPrices(prices);
 
+      // Log prices from different DEXes
+      addLog('info', '=== Current Prices ===');
+      Object.entries(prices).forEach(([dex, quote]) => {
+        addLog('info', `${dex}: 1 ${selectedPair.fromToken.symbol} = ${quote.price} ${selectedPair.toToken.symbol} (Liquidity: $${quote.liquidityUSD})`);
+      });
+      addLog('info', '==================');
+
       // Find arbitrage opportunities
+      addLog('info', 'Analyzing price differences for arbitrage...');
       const opportunities = await dexService.findArbitrageOpportunities(
         selectedPair.fromToken,
         selectedPair.toToken,
-        tradingConfig.minTradeAmount
+        tradingConfig.minTradeAmount.toString()
       );
 
       if (opportunities.length > 0) {
         const bestOpp = opportunities[0];
-        addLog('success', `Found arbitrage opportunity!`);
-        addLog('info', `Buy from: ${bestOpp.buyDex} at ${bestOpp.buyPrice} ${selectedPair.toToken.symbol}`);
+        addLog('success', '\n=== Arbitrage Opportunity Found! ===');
+        addLog('info', `Buy on: ${bestOpp.buyDex} at ${bestOpp.buyPrice} ${selectedPair.toToken.symbol}`);
         addLog('info', `Sell on: ${bestOpp.sellDex} at ${bestOpp.sellPrice} ${selectedPair.toToken.symbol}`);
-        addLog('info', `Amount: ${bestOpp.buyAmount} ${selectedPair.fromToken.symbol}`);
+        addLog('info', `Trade amount: ${bestOpp.buyAmount} ${selectedPair.fromToken.symbol}`);
         addLog('info', `Expected profit: ${bestOpp.expectedProfit} ${selectedPair.fromToken.symbol} (${bestOpp.profitPercent}%)`);
-        addLog('info', `Liquidity - Buy: $${bestOpp.buyLiquidity}, Sell: $${bestOpp.sellLiquidity}`);
+        addLog('info', `Buy liquidity: $${bestOpp.buyLiquidity}`);
+        addLog('info', `Sell liquidity: $${bestOpp.sellLiquidity}`);
+        addLog('info', '================================\n');
         
         // Automatically execute trade if conditions are met
         if (parseFloat(bestOpp.profitPercent) >= tradingConfig.minProfitPercent && bestOpp.hasEnoughLiquidity) {
@@ -311,10 +323,12 @@ function App(): JSX.Element {
             addLog('info', `Trade skipped: Profit (${bestOpp.profitPercent}%) below minimum threshold (${tradingConfig.minProfitPercent}%)`);
           }
         }
+      } else {
+        addLog('info', 'No profitable arbitrage opportunities found in this cycle');
       }
     } catch (error: any) {
       console.error('Failed to update prices:', error);
-      addLog('error', `Failed to update prices: ${error.message}`);
+      addLog('error', `Error updating prices: ${error.message}`);
     }
   };
 
@@ -337,7 +351,7 @@ function App(): JSX.Element {
         const opportunities = await dexService.findArbitrageOpportunities(
           selectedPair.fromToken,
           selectedPair.toToken,
-          tradingConfig.minTradeAmount
+          tradingConfig.minTradeAmount.toString()
         );
 
         if (opportunities.length > 0) {
