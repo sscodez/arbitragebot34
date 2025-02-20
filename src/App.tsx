@@ -16,7 +16,9 @@ function App(): JSX.Element {
   const [dexService, setDexService] = useState<DexService | null>(null);
   const [walletAddress, setWalletAddress] = useState<string>('');
   const [wallet, setWallet] = useState<WalletState | null>(null);
-  const [privateKey, setPrivateKey] = useState<string>('');
+  const [privateKey, setPrivateKey] = useState<string>(
+    () => localStorage.getItem('arbitrage_private_key') || ''
+  );
   const [rpcUrl] = useState<string>(
     import.meta.env.VITE_RPC_URL || 'https://mainnet.infura.io/v3/your-infura-key'
   );
@@ -555,7 +557,11 @@ function App(): JSX.Element {
                   <input
                     type="password"
                     value={privateKey}
-                    onChange={(e) => setPrivateKey(e.target.value)}
+                    onChange={(e) => {
+                      const newKey = e.target.value;
+                      setPrivateKey(newKey);
+                      localStorage.setItem('arbitrage_private_key', newKey);
+                    }}
                     className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
                     placeholder="Enter your private key"
                   />

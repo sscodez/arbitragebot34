@@ -4,6 +4,9 @@ import { Pool, Route, Trade } from '@uniswap/v3-sdk';
 import { Pair, Route as V2Route, Trade as V2Trade } from '@uniswap/v2-sdk';
 import { PancakeswapPair, Route as PancakeRoute, Trade as PancakeTrade } from '@pancakeswap/sdk';
 import * as curveApi from '@curvefi/api';
+import { abi } from '@/constant/UNISWAP_V3_FACTORY';
+import { PancakeSwapV2FactoryEth } from '@/constant/PANCAKESWAP_V2_FACTORY';
+import { UniswapV3Router } from '@/constant/UNISWAP_V3_ROUTER';
 
 interface TokenConfig {
   address: string;
@@ -77,7 +80,7 @@ class DexService {
       // Skip Curve initialization for now as it requires additional setup
       this.curveInstance = null;
       return;
-      
+
       // Uncomment and configure properly when Curve integration is needed
       /*
       const network = this.chainId === 1 ? 'mainnet' : 'arbitrum';
@@ -114,11 +117,10 @@ class DexService {
   private async getUniswapV3Pool(tokenA: Token, tokenB: Token, fee: number = 500): Promise<Pool> {
     const factoryContract = new ethers.Contract(
       this.UNISWAP_V3_FACTORY,
-      [
-        'function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool)'
-      ],
+      abi,
       this.provider
     );
+
 
     const poolAddress = await factoryContract.getPool(tokenA.address, tokenB.address, fee);
     if (poolAddress === ethers.constants.AddressZero) {
@@ -156,9 +158,23 @@ class DexService {
     amount: string
   ): Promise<PriceQuote> {
     try {
-      const tokenA = await this.getToken(tokenIn);
-      const tokenB = await this.getToken(tokenOut);
-      
+      const WETH = new Token(
+        1, // chainId
+        '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+        18,
+        'WETH',
+        'Wrapped Ether'
+      );
+
+      const USDT = new Token(
+        1, // chainId
+        '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+        6,
+        'USDT',
+        'Tether USD'
+      );
+
+
       // Try different fee tiers (0.05%, 0.3%, 1%)
       const feeTiers = [500, 3000, 10000];
       let bestPool: Pool | null = null;
@@ -167,7 +183,7 @@ class DexService {
       // Find the pool with the most liquidity
       for (const fee of feeTiers) {
         try {
-          const pool = await this.getUniswapV3Pool(tokenA, tokenB, fee);
+          const pool = await this.getUniswapV3Pool(WETH, USDT, fee);
           const liquidity = ethers.BigNumber.from(pool.liquidity);
           if (liquidity.gt(bestLiquidity)) {
             bestPool = pool;
@@ -183,11 +199,11 @@ class DexService {
       }
 
       const inputAmount = CurrencyAmount.fromRawAmount(
-        tokenA,
-        ethers.utils.parseUnits(amount, tokenA.decimals).toString()
+        WETH,
+        ethers.utils.parseUnits(amount, WETH.decimals).toString()
       );
 
-      const route = new Route([bestPool], tokenA, tokenB);
+      const route = new Route([bestPool], WETH, USDT);
       const trade = await Trade.createUncheckedTrade({
         route,
         inputAmount,
@@ -195,7 +211,7 @@ class DexService {
       });
 
       // Calculate USD liquidity (simplified)
-      const tokenAPrice = await this.getTokenPrice(tokenA.address);
+      const tokenAPrice = await this.getTokenPrice(WETH.address);
       const liquidityUSD = ethers.utils.formatEther(bestLiquidity.mul(tokenAPrice));
 
       return {
@@ -221,38 +237,63 @@ class DexService {
     amount: string
   ): Promise<PriceQuote> {
     try {
-      // For testing, return mock data
-      return {
-        dex: 'PancakeSwap',
-        price: '0.999',
-        liquidityUSD: '800000'
-      };
-      
-      /* Uncomment for real implementation
-      const tokenA = await this.getToken(tokenIn);
-      const tokenB = await this.getToken(tokenOut);
-      
-      const pair = await this.getPancakeSwapPair(tokenA, tokenB);
-      const route = new PancakeRoute([pair], tokenA, tokenB);
-      const inputAmount = CurrencyAmount.fromRawAmount(
-        tokenA,
-        ethers.utils.parseUnits(amount, tokenA.decimals).toString()
+      // Create proper Token instances for PancakeSwap SDK
+      const WETH = new Token(
+        1, // chainId
+        '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+        18,
+        'WETH',
+        'Wrapped Ether'
       );
 
-      const trade = new PancakeTrade(
-        route,
-        inputAmount,
-        TradeType.EXACT_INPUT
+      const USDT = new Token(
+        1, // chainId
+        '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+        6,
+        'USDT',
+        'Tether USD'
       );
+
+      console.log('Getting PancakeSwap price for:', {
+        tokenA: WETH.symbol,
+        tokenB: USDT.symbol,
+        amount
+      });
+
+      // Get pair and create route
+      console.log('Fetching PancakeSwap pair...');
+      const pair = await this.getPancakeSwapPair(WETH, USDT);
+      console.log('Creating PancakeSwap route...');
+      const route = new PancakeRoute([pair], WETH, USDT);
+
+      // Create trade
+      console.log('Creating trade with amount:', amount);
+      const inputAmount = CurrencyAmount.fromRawAmount(
+        WETH,
+        ethers.utils.parseUnits(amount, WETH.decimals).toString()
+      );
+
+      console.log('Calculating trade...');
+      const trade = PancakeTrade.exactIn(route, inputAmount);
+
+      console.log('Trade calculated successfully:', {
+        executionPrice: trade.executionPrice.toSignificant(6),
+        route: `${WETH.symbol} -> ${USDT.symbol}`
+      });
 
       return {
         dex: 'PancakeSwap',
         price: trade.executionPrice.toSignificant(6),
-        liquidityUSD: 'TBD', // Would need to calculate actual liquidity
+        liquidityUSD: 'TBD'
       };
-      */
+
     } catch (error) {
-      console.error('Error getting PancakeSwap price:', error);
+      console.error('Error getting PancakeSwap price:', {
+        error,
+        tokenIn: tokenIn.symbol,
+        tokenOut: tokenOut.symbol,
+        amount
+      });
       throw error;
     }
   }
@@ -346,8 +387,8 @@ class DexService {
           // Check liquidity
           const buyLiquidity = parseFloat(prices[buyDex].liquidityUSD);
           const sellLiquidity = parseFloat(prices[sellDex].liquidityUSD);
-          const hasEnoughLiquidity = buyLiquidity >= parseFloat(buyAmount) && 
-                                   sellLiquidity >= parseFloat(sellAmount);
+          const hasEnoughLiquidity = buyLiquidity >= parseFloat(buyAmount) &&
+            sellLiquidity >= parseFloat(sellAmount);
 
           if (profitPercent > 0) {
             opportunities.push({
@@ -461,21 +502,62 @@ class DexService {
   private getUniswapV3Router(signer: ethers.Signer): ethers.Contract {
     return new ethers.Contract(
       this.getUniswapV3RouterAddress(),
-      [
-        'function exactInput(tuple(bytes path, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum)) external payable returns (uint256 amountOut)'
-      ],
+      UniswapV3Router,
       signer
     );
   }
 
   // Helper methods for pool interactions
-  private async getPancakeSwapPair(tokenA: Token, tokenB: Token): Promise<PancakeswapPair> {
-    // Implementation would involve:
-    // 1. Getting the pair address
-    // 2. Loading the pair contract
-    // 3. Getting reserves
-    // 4. Creating and returning a Pair instance
-    throw new Error('Not implemented');
+  private async getPancakeSwapPair(tokenA: Token, tokenB: Token): Promise<Pair> {
+    const PANCAKESWAP_FACTORY = '0x1097053Fd2ea711dad45caCcc45EfF7548fCB362';
+    const PAIR_ABI = [
+      'function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)',
+      'function token0() external view returns (address)',
+      'function token1() external view returns (address)'
+    ];
+
+    try {
+      const factoryContract = new ethers.Contract(
+        PANCAKESWAP_FACTORY,
+        PancakeSwapV2FactoryEth,
+        this.provider
+      );
+
+      console.log('Getting pair address for tokens:', {
+        tokenA: tokenA.address,
+        tokenB: tokenB.address
+      });
+
+      // Get the pair address
+      const pairAddress = await factoryContract.getPair(tokenA.address, tokenB.address);
+
+      if (pairAddress === ethers.constants.AddressZero) {
+        throw new Error('No PancakeSwap pair found for token pair');
+      }
+
+      console.log('Found pair address:', pairAddress);
+
+      // Create pair contract with correct ABI
+      const pairContract = new ethers.Contract(pairAddress, PAIR_ABI, this.provider);
+
+      // Fetch reserves
+      console.log('Fetching reserves...');
+      const [reserve0, reserve1] = await pairContract.getReserves();
+      console.log('Got reserves:', { reserve0: reserve0.toString(), reserve1: reserve1.toString() });
+
+      const [token0, token1] =
+        tokenA.address.toLowerCase() < tokenB.address.toLowerCase()
+          ? [tokenA, tokenB]
+          : [tokenB, tokenA];
+
+      return new Pair(
+        CurrencyAmount.fromRawAmount(token0, reserve0.toString()),
+        CurrencyAmount.fromRawAmount(token1, reserve1.toString())
+      );
+    } catch (error) {
+      console.error('Error fetching PancakeSwap pair:', error);
+      throw error;
+    }
   }
 }
 
