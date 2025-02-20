@@ -386,6 +386,25 @@ class DexService {
       // Get pair and create route
       console.log('Fetching PancakeSwap pair...');
       const pair = await this.getPancakeSwapPair(WETH, USDT);
+
+      console.log('Getting reserves...');
+      const reserveWETH = parseFloat(pair.reserveOf(WETH).toSignificant(6));
+      const reserveUSDT = parseFloat(pair.reserveOf(USDT).toSignificant(6));
+  
+      console.log('Reserves:', { reserveWETH, reserveUSDT });
+  
+      // ✅ Calculate WETH price in USD using reserves
+      const wethPriceUSD = reserveUSDT / reserveWETH; // Since USDT = $1, this gives WETH price in USD
+  
+      console.log(`WETH price from pool: $${wethPriceUSD.toFixed(2)}`);
+  
+      // ✅ Convert reserves to USD
+      const reserveWETHUSD = reserveWETH * wethPriceUSD;
+      const reserveUSDTUSD = reserveUSDT; // USDT is already in USD
+      const liquidityUSD = (reserveWETHUSD + reserveUSDTUSD).toFixed(2);
+  
+      console.log('Total liquidity in USD:', liquidityUSD);
+
       console.log('Creating PancakeSwap route...');
       const route = new PancakeRoute([pair], WETH, USDT);
 
@@ -407,7 +426,7 @@ class DexService {
       return {
         dex: 'PancakeSwap',
         price: trade.executionPrice.toSignificant(6),
-        liquidityUSD: 'TBD'
+        liquidityUSD: liquidityUSD
       };
 
     } catch (error) {
