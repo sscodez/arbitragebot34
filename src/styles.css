@@ -1,0 +1,123 @@
+/* Reset default styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  background-color: var(--dark-bg);
+  color: var(--dark-text);
+}
+
+:root {
+  --primary: #22c55e;
+  --dark-bg: #0f1011;
+  --dark-card: #1a1b23;
+  --dark-border: #2d2e3d;
+  --dark-text: #e2e8f0;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--dark-card);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--dark-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3d3e4d;
+}
+
+/* Glassmorphism effects */
+.glass {
+  background-color: var(--dark-card);
+  backdrop-filter: blur(5px);
+  border: 1px solid var(--dark-border);
+}
+
+/* Animation utilities */
+.animate-glow {
+  animation: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+  from {
+    box-shadow: 0 0 5px #22c55e20,
+                0 0 10px #22c55e20,
+                0 0 15px #22c55e20;
+  }
+  to {
+    box-shadow: 0 0 10px #22c55e40,
+                0 0 20px #22c55e40,
+                0 0 30px #22c55e40;
+  }
+}
+
+/* Console text colors */
+.console-info {
+  color: #60a5fa;
+}
+
+.console-success {
+  color: #22c55e;
+}
+
+.console-error {
+  color: #ef4444;
+}
+
+.console-warning {
+  color: #f7dc6f;
+}
+
+/* Input styles */
+input {
+  background-color: var(--dark-bg);
+  border: 1px solid var(--dark-border);
+  border-radius: 10px;
+  padding: 10px 15px;
+}
+
+/* Button styles */
+.btn {
+  padding: 10px 15px;
+  border-radius: 10px;
+  font-weight: 500;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-primary {
+  background-color: #22c55e;
+  color: white;
+}
+
+.btn-outline {
+  border: 1px solid var(--dark-border);
+}
+
+/* Card hover effects */
+.card-hover {
+  transition: all 0.3s ease-in-out;
+}
+
+.card-hover:hover {
+  transform: scale(1.02);
+  box-shadow: 0 0 10px #22c55e10;
+}
