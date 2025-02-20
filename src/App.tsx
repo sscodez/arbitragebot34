@@ -20,7 +20,7 @@ function App(): JSX.Element {
   const [rpcUrl] = useState<string>(
     import.meta.env.VITE_RPC_URL || 'https://mainnet.infura.io/v3/your-infura-key'
   );
-  
+
   // Trading configuration state
   const [tradingConfig, setTradingConfig] = useState<TradingConfig>({
     maxDailyTrades: 50,
@@ -134,7 +134,7 @@ function App(): JSX.Element {
   const resetDailyStats = useCallback(() => {
     const now = new Date();
     const lastResetDate = new Date(tradingStats.lastTradeTimestamp);
-    
+
     // Only reset if it's a new day and we have stats to reset
     if (
       now.getDate() !== lastResetDate.getDate() &&
@@ -151,17 +151,52 @@ function App(): JSX.Element {
 
   // Execute arbitrage trade functionality
   const executeArbitrageTrade = useCallback(async (opportunity: ArbitrageOpportunity) => {
-    if (!dexService || !wallet || tradingStats.dailyTrades >= tradingConfig.maxDailyTrades) {
+    if (!dexService || !wallet || !selectedPair) {
+      addLog('error', 'DexService, wallet, or trading pair not initialized');
+      return;
+    }
+
+    if (tradingStats.dailyTrades >= tradingConfig.maxDailyTrades) {
+      addLog('warning', 'Daily trade limit reached. Bot will resume trading tomorrow.');
       return;
     }
 
     try {
+      // Check wallet balance
+      const tokenContract = new ethers.Contract(
+        selectedPair.fromToken.address,
+        ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'],
+        wallet
+      );
+      
+      const decimals = await tokenContract.decimals();
+      const balance = await tokenContract.balanceOf(wallet.address);
+      const requiredAmount = ethers.utils.parseUnits(opportunity.buyAmount, decimals);
+      
+      if (balance.lt(requiredAmount)) {
+        const formattedBalance = ethers.utils.formatUnits(balance, decimals);
+        addLog('error', `Insufficient balance. Required: ${opportunity.buyAmount} ${selectedPair.fromToken.symbol}, Available: ${formattedBalance} ${selectedPair.fromToken.symbol}`);
+        return;
+      }
+
+      // Check allowance
+      const allowance = await tokenContract.allowance(wallet.address, dexService.getRouterAddress(opportunity.buyDex));
+      if (allowance.lt(requiredAmount)) {
+        addLog('info', `Approving ${selectedPair.fromToken.symbol} for trading...`);
+        const approveTx = await tokenContract.approve(
+          dexService.getRouterAddress(opportunity.buyDex),
+          ethers.constants.MaxUint256
+        );
+        await approveTx.wait();
+        addLog('success', `Approved ${selectedPair.fromToken.symbol} for trading`);
+      }
+
       // Execute buy trade
       addLog('info', `Executing buy trade on ${opportunity.buyDex}`);
       const buyResult = await dexService.executeTrade({
-        tokenIn: selectedPair!.fromToken,
-        tokenOut: selectedPair!.toToken,
-        amount: tradingConfig.minTradeAmount,
+        tokenIn: selectedPair.fromToken,
+        tokenOut: selectedPair.toToken,
+        amount: opportunity.buyAmount,
         dex: opportunity.buyDex,
         slippageTolerance: tradingConfig.slippageTolerance
       });
@@ -179,8 +214,8 @@ function App(): JSX.Element {
       // Execute sell trade
       addLog('info', `Executing sell trade on ${opportunity.sellDex}`);
       const sellResult = await dexService.executeTrade({
-        tokenIn: selectedPair!.toToken,
-        tokenOut: selectedPair!.fromToken,
+        tokenIn: selectedPair.toToken,
+        tokenOut: selectedPair.fromToken,
         amount: buyResult.outputAmount!,
         dex: opportunity.sellDex,
         slippageTolerance: tradingConfig.slippageTolerance
@@ -196,8 +231,11 @@ function App(): JSX.Element {
         return;
       }
 
+      // Calculate actual profit
+      const profit = parseFloat(sellResult.outputAmount!) - parseFloat(opportunity.buyAmount);
+      const profitPercent = (profit / parseFloat(opportunity.buyAmount)) * 100;
+
       // Update stats
-      const profit = parseFloat(opportunity.expectedProfit);
       setTradingStats(prev => ({
         ...prev,
         dailyTrades: prev.dailyTrades + 1,
@@ -206,8 +244,20 @@ function App(): JSX.Element {
         totalProfit: (parseFloat(prev.totalProfit) + profit).toString()
       }));
 
-      addLog('success', `Arbitrage trade completed successfully! Profit: ${profit.toFixed(4)} ${selectedPair!.fromToken.symbol}`);
+      addLog('success', `Arbitrage trade completed successfully!`);
+      addLog('success', `Profit: ${profit.toFixed(4)} ${selectedPair.fromToken.symbol} (${profitPercent.toFixed(2)}%)`);
+      
+      // Add to trade history
+      setTradeHistory(prev => [{
+        pair: `${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}`,
+        profit: profitPercent.toFixed(2),
+        route: opportunity.route,
+        status: 'success',
+        timestamp: Date.now()
+      }, ...prev.slice(0, 9)]);
+
     } catch (error: any) {
+      console.error('Trade execution failed:', error);
       addLog('error', `Trade execution failed: ${error.message}`);
       setTradingStats(prev => ({
         ...prev,
@@ -216,6 +266,55 @@ function App(): JSX.Element {
       }));
     }
   }, [dexService, wallet, selectedPair, tradingConfig, tradingStats.dailyTrades]);
+
+  // Update prices and check for opportunities
+  const updatePrices = async () => {
+    if (!dexService || !selectedPair) {
+      return;
+    }
+
+    try {
+      const prices = await dexService.getCurrentPrices(
+        selectedPair.fromToken,
+        selectedPair.toToken,
+        tradingConfig.minTradeAmount
+      );
+      setCurrentPrices(prices);
+
+      // Find arbitrage opportunities
+      const opportunities = await dexService.findArbitrageOpportunities(
+        selectedPair.fromToken,
+        selectedPair.toToken,
+        tradingConfig.minTradeAmount
+      );
+
+      if (opportunities.length > 0) {
+        const bestOpp = opportunities[0];
+        addLog('success', `Found arbitrage opportunity!`);
+        addLog('info', `Buy from: ${bestOpp.buyDex} at ${bestOpp.buyPrice} ${selectedPair.toToken.symbol}`);
+        addLog('info', `Sell on: ${bestOpp.sellDex} at ${bestOpp.sellPrice} ${selectedPair.toToken.symbol}`);
+        addLog('info', `Amount: ${bestOpp.buyAmount} ${selectedPair.fromToken.symbol}`);
+        addLog('info', `Expected profit: ${bestOpp.expectedProfit} ${selectedPair.fromToken.symbol} (${bestOpp.profitPercent}%)`);
+        addLog('info', `Liquidity - Buy: $${bestOpp.buyLiquidity}, Sell: $${bestOpp.sellLiquidity}`);
+        
+        // Automatically execute trade if conditions are met
+        if (parseFloat(bestOpp.profitPercent) >= tradingConfig.minProfitPercent && bestOpp.hasEnoughLiquidity) {
+          addLog('info', `Executing trade with ${bestOpp.profitPercent}% profit potential...`);
+          await executeArbitrageTrade(bestOpp);
+        } else {
+          if (!bestOpp.hasEnoughLiquidity) {
+            addLog('warning', 'Trade skipped: Insufficient liquidity');
+          }
+          if (parseFloat(bestOpp.profitPercent) < tradingConfig.minProfitPercent) {
+            addLog('info', `Trade skipped: Profit (${bestOpp.profitPercent}%) below minimum threshold (${tradingConfig.minProfitPercent}%)`);
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Failed to update prices:', error);
+      addLog('error', `Failed to update prices: ${error.message}`);
+    }
+  };
 
   // Start bot functionality
   const startBot = useCallback(async () => {
@@ -316,12 +415,12 @@ function App(): JSX.Element {
       addLog('info', `Token pair: ${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}`);
       addLog('info', `Min profit threshold: ${tradingConfig.minProfitPercent}%`);
       addLog('info', `Max trade amount: ${tradingConfig.maxTradeAmount} ${selectedPair.fromToken.symbol}`);
-      
+
       await startBot();
-      
+
       addLog('success', 'Bot started successfully');
       addLog('info', 'Monitoring prices for arbitrage opportunities...');
-      
+
       // Start price updates
       updatePrices();
     } catch (error) {
@@ -339,7 +438,7 @@ function App(): JSX.Element {
     try {
       stopBot();
       addLog('info', 'Bot stopped successfully');
-      
+
       if (priceUpdateInterval) {
         clearInterval(priceUpdateInterval);
         setPriceUpdateInterval(null);
@@ -390,31 +489,6 @@ function App(): JSX.Element {
     addLog('info', command);
   };
 
-  // Update prices functionality
-  const updatePrices = async () => {
-    if (!dexService || !selectedPair) {
-      return;
-    }
-
-    try {
-      const prices = await dexService.getCurrentPrices(
-        selectedPair.fromToken,
-        selectedPair.toToken,
-        tradingConfig.minTradeAmount
-      );
-      setCurrentPrices(prices);
-      
-      // Log prices to console
-      addLog('info', `Current prices for ${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}:`);
-      Object.entries(prices).forEach(([dex, data]) => {
-        addLog('info', `  ${dex}: ${parseFloat(data.price).toFixed(8)} ${selectedPair.toToken.symbol}/${selectedPair.fromToken.symbol}`);
-      });
-    } catch (error: any) {
-      console.error('Error updating prices:', error);
-      addLog('error', `Failed to update prices: ${error.message}`);
-    }
-  };
-
   // Start price updates on bot start
   useEffect(() => {
     if (botStatus.isRunning && selectedPair && dexService) {
@@ -458,7 +532,7 @@ function App(): JSX.Element {
   // Render JSX
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <Navbar 
+      <Navbar
         onConnect={handleWalletConnect}
         walletAddress={wallet?.address || ''}
         botStatus={botStatus.isRunning}
@@ -467,9 +541,9 @@ function App(): JSX.Element {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="grid grid-cols-12 gap-6">
           {/* Left Column - Bot Controls */}
-          <div className="lg:col-span-4 space-y-6">
+          <div className="col-span-4 space-y-6">
             {/* Wallet Info */}
             <div className="bg-card rounded-lg shadow-glow p-6">
               <h2 className="text-xl font-semibold mb-4 text-primary">Wallet Configuration</h2>
@@ -569,22 +643,20 @@ function App(): JSX.Element {
                   <button
                     onClick={handleStartBot}
                     disabled={botStatus.isRunning}
-                    className={`flex-1 py-2 px-4 rounded-lg font-medium ${
-                      botStatus.isRunning
+                    className={`flex-1 py-2 px-4 rounded-lg font-medium ${botStatus.isRunning
                         ? 'bg-muted text-muted-foreground cursor-not-allowed'
                         : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                    }`}
+                      }`}
                   >
                     Start Bot
                   </button>
                   <button
                     onClick={handleStopBot}
                     disabled={!botStatus.isRunning}
-                    className={`flex-1 py-2 px-4 rounded-lg font-medium ${
-                      !botStatus.isRunning
+                    className={`flex-1 py-2 px-4 rounded-lg font-medium ${!botStatus.isRunning
                         ? 'bg-muted text-muted-foreground cursor-not-allowed'
                         : 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                    }`}
+                      }`}
                   >
                     Stop Bot
                   </button>
@@ -595,7 +667,7 @@ function App(): JSX.Element {
             {/* Token Pair Selector */}
             <div className="bg-card rounded-lg shadow-glow p-6">
               <h2 className="text-xl font-semibold mb-4 text-primary">Select Token Pair</h2>
-              <TokenPairSelector 
+              <TokenPairSelector
                 onPairSelect={handlePairSelect}
                 provider={provider}
                 walletAddress={walletAddress}
@@ -642,17 +714,16 @@ function App(): JSX.Element {
               <h3 className="text-lg font-semibold mb-2">Recent Trades</h3>
               <div className="space-y-2">
                 {tradeHistory.map((trade, index) => (
-                  <div key={index} className={`p-2 rounded ${
-                    trade.status === 'success' ? 'bg-success/10' :
-                    trade.status === 'failed' ? 'bg-destructive/10' :
-                    'bg-muted'
-                  }`}>
+                  <div key={index} className={`p-2 rounded ${trade.status === 'success' ? 'bg-success/10' :
+                      trade.status === 'failed' ? 'bg-destructive/10' :
+                        'bg-muted'
+                    }`}>
                     <div className="flex justify-between">
                       <span>{trade.pair}</span>
                       <span className={
                         trade.status === 'success' ? 'text-success' :
-                        trade.status === 'failed' ? 'text-destructive' :
-                        'text-muted-foreground'
+                          trade.status === 'failed' ? 'text-destructive' :
+                            'text-muted-foreground'
                       }>
                         {trade.status === 'success' ? `+${trade.profit}%` : trade.status}
                       </span>
@@ -669,25 +740,25 @@ function App(): JSX.Element {
                 ))}
               </div>
             </div>
-
-            {/* Console Section */}
-         
-
-          {/* Right Column - Trading View */}
-          <div className="lg:col-span-8 space-y-6">
-            {/* Trading View */}
-
-            <div className="bg-card rounded-lg p-4 h-[400px]">
-              <h3 className="text-lg font-semibold mb-2">Console</h3>
-              <Console 
-                logs={logs}
-                onCommand={handleConsoleCommand}
-                isRunning={botStatus.isRunning}
-                onStartBot={handleStartBot}
-                onStopBot={handleStopBot}
-              />
-            </div>
           </div>
+
+          {/* Right Column - Console and Trading View */}
+          <div className="col-span-8 space-y-6">
+            {/* Console Section */}
+            <div className="bg-card rounded-lg p-4 h-[400px] flex flex-col">
+              <h3 className="text-lg font-semibold mb-2">Console</h3>
+              <div className="flex-1 overflow-auto">
+                <Console
+                  logs={logs}
+                  onCommand={handleConsoleCommand}
+                  isRunning={botStatus.isRunning}
+                  onStartBot={handleStartBot}
+                  onStopBot={handleStopBot}
+                />
+              </div>
+            </div>
+
+            {/* Trading View */}
             <div className="bg-card rounded-lg shadow-glow p-6">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold text-primary">Trading View</h2>
@@ -704,7 +775,7 @@ function App(): JSX.Element {
                   </span>
                 </div>
               </div>
-              <TradingView 
+              <TradingView
                 selectedPair={selectedPair}
                 provider={provider}
                 walletAddress={walletAddress}

@@ -26,6 +26,12 @@ interface ArbitrageOpportunity {
   profitPercent: string;
   expectedProfit: string;
   route: string;
+  buyAmount: string;
+  sellAmount: string;
+  timestamp: number;
+  hasEnoughLiquidity: boolean;
+  buyLiquidity: string;
+  sellLiquidity: string;
 }
 
 interface ExecuteTradeParams {
@@ -304,8 +310,8 @@ class DexService {
     try {
       const prices = await this.getCurrentPrices(tokenIn, tokenOut, amount);
       const opportunities: ArbitrageOpportunity[] = [];
-      
-      // Compare prices between DEXes
+
+      // Compare prices between different DEXes
       const dexes = Object.keys(prices);
       for (let i = 0; i < dexes.length; i++) {
         for (let j = i + 1; j < dexes.length; j++) {
@@ -313,33 +319,61 @@ class DexService {
           const dex2 = dexes[j];
           const price1 = parseFloat(prices[dex1].price);
           const price2 = parseFloat(prices[dex2].price);
-          
-          // Calculate profit percentage
-          const profitPercent = ((Math.max(price1, price2) - Math.min(price1, price2)) / Math.min(price1, price2)) * 100;
-          
+
+          // Calculate potential profit
+          const profitPercent = Math.abs(((price2 - price1) / price1) * 100);
+          const expectedProfit = (parseFloat(amount) * Math.abs(price2 - price1)).toString();
+
+          // Determine buy and sell DEXes
+          let buyDex, sellDex, buyPrice, sellPrice;
+          if (price1 < price2) {
+            buyDex = dex1;
+            sellDex = dex2;
+            buyPrice = price1;
+            sellPrice = price2;
+          } else {
+            buyDex = dex2;
+            sellDex = dex1;
+            buyPrice = price2;
+            sellPrice = price1;
+          }
+
+          // Calculate amounts
+          const buyAmount = amount;
+          const sellAmount = (parseFloat(amount) * sellPrice).toString();
+          const profitAmount = (parseFloat(sellAmount) - parseFloat(buyAmount)).toString();
+
+          // Check liquidity
+          const buyLiquidity = parseFloat(prices[buyDex].liquidityUSD);
+          const sellLiquidity = parseFloat(prices[sellDex].liquidityUSD);
+          const hasEnoughLiquidity = buyLiquidity >= parseFloat(buyAmount) && 
+                                   sellLiquidity >= parseFloat(sellAmount);
+
           if (profitPercent > 0) {
-            const [buyDex, sellDex] = price1 < price2 ? [dex1, dex2] : [dex2, dex1];
-            const [buyPrice, sellPrice] = price1 < price2 ? [price1, price2] : [price2, price1];
-            
-            const expectedProfit = (parseFloat(amount) * profitPercent / 100).toString();
-            
             opportunities.push({
               buyDex,
               sellDex,
               buyPrice: buyPrice.toString(),
               sellPrice: sellPrice.toString(),
-              profitPercent: profitPercent.toFixed(2),
-              expectedProfit,
-              route: `${buyDex} -> ${sellDex}`
+              profitPercent: profitPercent.toFixed(4),
+              expectedProfit: profitAmount,
+              route: `${buyDex} -> ${sellDex}`,
+              buyAmount,
+              sellAmount,
+              timestamp: Date.now(),
+              hasEnoughLiquidity,
+              buyLiquidity: buyLiquidity.toString(),
+              sellLiquidity: sellLiquidity.toString()
             });
           }
         }
       }
-      
+
+      // Sort by profit percentage in descending order
       return opportunities.sort((a, b) => parseFloat(b.profitPercent) - parseFloat(a.profitPercent));
     } catch (error) {
       console.error('Error finding arbitrage opportunities:', error);
-      throw new Error(`Failed to find arbitrage opportunities: ${error.message}`);
+      throw error;
     }
   }
 
