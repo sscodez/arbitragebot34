@@ -25,3 +25,19 @@ export interface SelectedPair {
   fromPrice: string;
   toPrice: string;
 }
+
+export interface TradingConfig {
+  maxDailyTrades: number;
+  minProfitPercent: number;
+  maxTradeAmount: string;
+  minTradeAmount: string;
+  slippageTolerance: number;
+}
+
+export interface TradingStats {
+  dailyTrades: number;
+  lastTradeTimestamp: number;
+  totalProfit: string;
+  successfulTrades: number;
+  failedTrades: number;
+}
