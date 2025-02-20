@@ -388,27 +388,35 @@ class DexService {
       const pair = await this.getPancakeSwapPair(WETH, USDT);
 
       console.log('Getting reserves...');
-      const reserveWETH = parseFloat(pair.reserveOf(WETH).toSignificant(6));
-      const reserveUSDT = parseFloat(pair.reserveOf(USDT).toSignificant(6));
+      const reserveWETH = parseFloat(pair.reserveOf(WETH).toSignificant(18));
+      const reserveUSDT = parseFloat(pair.reserveOf(USDT).toSignificant(18));
   
       console.log('Reserves:', { reserveWETH, reserveUSDT });
   
-      // ✅ Calculate WETH price in USD using reserves
-      const wethPriceUSD = reserveUSDT / reserveWETH; // Since USDT = $1, this gives WETH price in USD
+      // Create route and trade first to get accurate price
+      console.log('Creating PancakeSwap route...');
+      const route = new PancakeRoute([pair], WETH, USDT);
+
+      // Create trade with 1 ETH to get the current price
+      console.log('Creating trade with 1 ETH to get price...');
+      const oneEth = CurrencyAmount.fromRawAmount(
+        WETH,
+        ethers.utils.parseUnits('1', WETH.decimals).toString()
+      );
+
+      const priceTrade = PancakeTrade.exactIn(route, oneEth);
+      const wethPriceUSD = parseFloat(priceTrade.executionPrice.toSignificant(8));
   
-      console.log(`WETH price from pool: $${wethPriceUSD.toFixed(2)}`);
+      console.log(`WETH price from trade: $${wethPriceUSD.toFixed(2)}`);
   
-      // ✅ Convert reserves to USD
+      // Calculate liquidity using the accurate price
       const reserveWETHUSD = reserveWETH * wethPriceUSD;
       const reserveUSDTUSD = reserveUSDT; // USDT is already in USD
       const liquidityUSD = (reserveWETHUSD + reserveUSDTUSD).toFixed(2);
   
       console.log('Total liquidity in USD:', liquidityUSD);
 
-      console.log('Creating PancakeSwap route...');
-      const route = new PancakeRoute([pair], WETH, USDT);
-
-      // Create trade
+      // Now create the actual trade with user's amount
       console.log('Creating trade with amount:', amount);
       const inputAmount = CurrencyAmount.fromRawAmount(
         WETH,
@@ -419,13 +427,13 @@ class DexService {
       const trade = PancakeTrade.exactIn(route, inputAmount);
 
       console.log('Trade calculated successfully:', {
-        executionPrice: trade.executionPrice.toSignificant(6),
+        executionPrice: trade.executionPrice.toSignificant(8),
         route: `${WETH.symbol} -> ${USDT.symbol}`
       });
 
       return {
         dex: 'PancakeSwap',
-        price: trade.executionPrice.toSignificant(6),
+        price: wethPriceUSD.toString(), // Use the accurate price we calculated
         liquidityUSD: liquidityUSD
       };
 
