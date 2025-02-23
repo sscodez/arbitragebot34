@@ -94,6 +94,9 @@ function App(): JSX.Element {
   // Price update interval state
   const [priceUpdateInterval, setPriceUpdateInterval] = useState<NodeJS.Timeout | null>(null);
 
+  // Trade execution permission state
+  const [tradeExecutionEnabled, setTradeExecutionEnabled] = useState<boolean>(false);
+
   // Initialize wallet from private key
   const initializeWalletFromPrivateKey = async (key: string) => {
     try {
@@ -153,6 +156,11 @@ function App(): JSX.Element {
 
   // Execute arbitrage trade functionality
   const executeArbitrageTrade = useCallback(async (opportunity: ArbitrageOpportunity) => {
+    if (!tradeExecutionEnabled) {
+      addLog('warning', 'Trade execution is disabled. Please enable it in the bot control section.');
+      return;
+    }
+
     if (!dexService || !wallet || !selectedPair) {
       addLog('error', 'DexService, wallet, or trading pair not initialized');
       return;
@@ -267,12 +275,11 @@ function App(): JSX.Element {
         lastTradeTimestamp: Date.now()
       }));
     }
-  }, [dexService, wallet, selectedPair, tradingConfig, tradingStats.dailyTrades]);
+  }, [dexService, wallet, selectedPair, tradingConfig, tradingStats.dailyTrades, tradeExecutionEnabled]);
 
   // Update prices and check for opportunities
-  const updatePrices = async () => {
-    if (!dexService || !selectedPair) {
-      console.log('DexService or selected pair not initialized');
+  const updatePrices = useCallback(async () => {
+    if (!botStatus.isRunning || !selectedPair || !dexService) {
       return;
     }
 
@@ -330,7 +337,7 @@ function App(): JSX.Element {
       console.error('Failed to update prices:', error);
       addLog('error', `Error updating prices: ${error.message}`);
     }
-  };
+  }, [botStatus.isRunning, selectedPair, dexService, tradingConfig]);
 
   // Start bot functionality
   const startBot = useCallback(async () => {
@@ -397,8 +404,134 @@ function App(): JSX.Element {
     setLogs(prev => [...prev, { type, message, timestamp: Date.now() }]);
   };
 
+  // Add cleanup function for intervals
+  const clearAllIntervals = useCallback(() => {
+    if (monitoringInterval) {
+      clearInterval(monitoringInterval);
+      setMonitoringInterval(null);
+    }
+    if (priceUpdateInterval) {
+      clearInterval(priceUpdateInterval);
+      setPriceUpdateInterval(null);
+    }
+  }, [monitoringInterval, priceUpdateInterval]);
+
+  // Update price fetching logic
+  const fetchPrices = useCallback(async () => {
+    if (!botStatus.isRunning || !selectedPair || !dexService) {
+      return;
+    }
+
+    try {
+      const prices = await dexService.getPrices(selectedPair.fromToken, selectedPair.toToken);
+      if (!botStatus.isRunning) {  // Double check bot status after async operation
+        return;
+      }
+      setCurrentPrices(prices);
+    } catch (error) {
+      console.error('Error fetching prices:', error);
+    }
+  }, [botStatus.isRunning, selectedPair, dexService]);
+
+  // Update price monitoring effect
+  useEffect(() => {
+    let monitoringInterval: NodeJS.Timeout | null = null;
+    let priceInterval: NodeJS.Timeout | null = null;
+
+    const startMonitoring = async () => {
+      if (botStatus.isRunning && selectedPair && dexService) {
+        // Initial fetch
+        await fetchPrices();
+        
+        // Set up price monitoring interval
+        priceInterval = setInterval(async () => {
+          if (!botStatus.isRunning) {
+            clearInterval(priceInterval!);
+            return;
+          }
+          await fetchPrices();
+        }, 5000);
+
+        // Set up monitoring interval for other updates
+        monitoringInterval = setInterval(() => {
+          if (!botStatus.isRunning) {
+            clearInterval(monitoringInterval!);
+            return;
+          }
+          updatePrices();
+        }, 10000);
+      }
+    };
+
+    startMonitoring();
+
+    return () => {
+      if (priceInterval) {
+        clearInterval(priceInterval);
+      }
+      if (monitoringInterval) {
+        clearInterval(monitoringInterval);
+      }
+    };
+  }, [botStatus.isRunning, selectedPair, dexService, fetchPrices, updatePrices]);
+
+  // Handle stop bot functionality
+  const handleStopBot = useCallback(() => {
+    if (!botStatus.isRunning) {
+      addLog('warning', 'Bot is not running');
+      return;
+    }
+
+    try {
+      // Clear all intervals
+      clearAllIntervals();
+      
+      // Stop the bot
+      stopBot();
+      
+      // Reset all trading related states
+      setBotStatus(prev => ({
+        ...prev,
+        isRunning: false,
+        stats: {
+          totalProfit: '0.00',
+          dailyVolume: '0.00',
+          successRate: 0
+        }
+      }));
+      
+      // Clear all monitoring data
+      setCurrentPrices({});
+      setTradeHistory([]);
+      setTradingStats(prev => ({
+        ...prev,
+        dailyTrades: 0,
+        lastTradeTimestamp: 0
+      }));
+
+      // Cancel any pending operations
+      if (dexService) {
+        dexService.cancelAllOperations?.();  // Add this method to dexService if it doesn't exist
+      }
+      
+      addLog('info', 'Bot stopped successfully');
+    } catch (error) {
+      addLog('error', `Failed to stop bot: ${error}`);
+      // Ensure bot is marked as stopped even if there's an error
+      setBotStatus(prev => ({
+        ...prev,
+        isRunning: false
+      }));
+    }
+  }, [botStatus.isRunning, clearAllIntervals, stopBot, dexService]);
+
   // Handle start bot functionality
-  const handleStartBot = async () => {
+  const handleStartBot = useCallback(async () => {
+    if (!wallet || !dexService) {
+      addLog('error', 'Please connect your wallet first');
+      return;
+    }
+
     if (!selectedPair) {
       addLog('error', 'Please select a token pair first');
       return;
@@ -427,42 +560,52 @@ function App(): JSX.Element {
     }
 
     try {
+      // Clear any existing intervals before starting
+      clearAllIntervals();
+
       addLog('info', 'Starting arbitrage bot...');
       addLog('info', `Token pair: ${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}`);
       addLog('info', `Min profit threshold: ${tradingConfig.minProfitPercent}%`);
       addLog('info', `Max trade amount: ${tradingConfig.maxTradeAmount} ${selectedPair.fromToken.symbol}`);
 
-      await startBot();
+      // Set up new intervals
+      const newMonitoringInterval = setInterval(async () => {
+        updatePrices();
+      }, 10000); // 10 seconds interval
 
+      setMonitoringInterval(newMonitoringInterval);
+      setBotStatus(prev => ({
+        ...prev,
+        isRunning: true
+      }));
+
+      await startBot();
+      updatePrices();
+      
       addLog('success', 'Bot started successfully');
       addLog('info', 'Monitoring prices for arbitrage opportunities...');
-
-      // Start price updates
-      updatePrices();
     } catch (error) {
       addLog('error', `Failed to start bot: ${error}`);
+      clearAllIntervals();
+      setBotStatus(prev => ({
+        ...prev,
+        isRunning: false
+      }));
     }
-  };
-
-  // Handle stop bot functionality
-  const handleStopBot = async () => {
-    if (!botStatus.isRunning) {
-      addLog('warning', 'Bot is not running');
-      return;
-    }
-
-    try {
-      stopBot();
-      addLog('info', 'Bot stopped successfully');
-
-      if (priceUpdateInterval) {
-        clearInterval(priceUpdateInterval);
-        setPriceUpdateInterval(null);
-      }
-    } catch (error) {
-      addLog('error', `Failed to stop bot: ${error}`);
-    }
-  };
+  }, [
+    wallet,
+    dexService,
+    selectedPair,
+    privateKey,
+    provider,
+    botStatus.isRunning,
+    clearAllIntervals,
+    updatePrices,
+    tradingConfig.minProfitPercent,
+    tradingConfig.maxTradeAmount,
+    initializeWalletFromPrivateKey,
+    startBot
+  ]);
 
   // Handle wallet connect functionality
   const handleWalletConnect = async ({ address }: { address: string }): Promise<void> => {
@@ -505,23 +648,38 @@ function App(): JSX.Element {
     addLog('info', command);
   };
 
-  // Start price updates on bot start
+  // Update price update effect to clear interval when bot stops
   useEffect(() => {
-    if (botStatus.isRunning && selectedPair && dexService) {
-      // Initial price update
-      updatePrices();
+    let priceInterval: NodeJS.Timeout | null = null;
 
-      // Set up interval for price updates
-      const interval = setInterval(updatePrices, 10000); // Update every 10 seconds
-      setPriceUpdateInterval(interval);
+    const startPriceUpdates = () => {
+      if (botStatus.isRunning && selectedPair && dexService) {
+        // Initial update
+        updatePrices();
+        
+        // Set up interval
+        priceInterval = setInterval(() => {
+          if (!botStatus.isRunning) {
+            if (priceInterval) {
+              clearInterval(priceInterval);
+              priceInterval = null;
+            }
+            return;
+          }
+          updatePrices();
+        }, 5000);
+      }
+    };
 
-      return () => {
-        if (interval) {
-          clearInterval(interval);
-        }
-      };
-    }
-  }, [botStatus.isRunning, selectedPair, dexService]);
+    startPriceUpdates();
+
+    return () => {
+      if (priceInterval) {
+        clearInterval(priceInterval);
+        priceInterval = null;
+      }
+    };
+  }, [botStatus.isRunning, selectedPair, dexService, updatePrices]);
 
   // Effect for resetting daily stats
   useEffect(() => {
@@ -544,6 +702,15 @@ function App(): JSX.Element {
       }
     };
   }, [monitoringInterval]);
+
+  // Add cleanup effect for component unmount
+  useEffect(() => {
+    return () => {
+      if (botStatus.isRunning) {
+        handleStopBot();
+      }
+    };
+  }, [botStatus.isRunning, handleStopBot]);
 
   // Render JSX
   return (
@@ -660,6 +827,16 @@ function App(): JSX.Element {
                   />
                 </div>
                 <div className="flex gap-4">
+                  <label className="block text-sm font-medium text-muted-foreground mb-1">
+                    Enable Trade Execution
+                  </label>
+                  <input
+                    type="checkbox"
+                    checked={tradeExecutionEnabled}
+                    onChange={(e) => setTradeExecutionEnabled(e.target.checked)}
+                  />
+                </div>
+                <div className="flex gap-4">
                   <button
                     onClick={handleStartBot}
                     disabled={botStatus.isRunning}
@@ -772,8 +949,6 @@ function App(): JSX.Element {
                   logs={logs}
                   onCommand={handleConsoleCommand}
                   isRunning={botStatus.isRunning}
-                  onStartBot={handleStartBot}
-                  onStopBot={handleStopBot}
                 />
               </div>
             </div>

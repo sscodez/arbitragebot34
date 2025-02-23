@@ -59,6 +59,7 @@ class DexService {
   private tokens: Map<string, Token>;
   private chainId: number;
   private signer?: ethers.Signer;
+  private isOperationCancelled: boolean = false;
 
   // Uniswap V3 Contract Addresses
   private readonly UNISWAP_V3_FACTORY_ADDRESS = '0x1F98431c8aD98523631AE4a59f267346ea31F984';
@@ -74,6 +75,14 @@ class DexService {
 
   public setSigner(signer: ethers.Signer) {
     this.signer = signer;
+  }
+
+  public cancelAllOperations() {
+    this.isOperationCancelled = true;
+  }
+
+  public resetCancelledState() {
+    this.isOperationCancelled = false;
   }
 
   private async initializeCurve() {
@@ -120,6 +129,10 @@ class DexService {
     tokenB: Token,
     fee: number
   ): Promise<Pool | null> {
+    if (this.isOperationCancelled) {
+      return null;
+    }
+
     try {
       const factoryContract = new ethers.Contract(
         this.UNISWAP_V3_FACTORY_ADDRESS,
@@ -249,6 +262,14 @@ class DexService {
     tokenOut: TokenConfig,
     amount: string
   ): Promise<PriceQuote> {
+    if (this.isOperationCancelled) {
+      return {
+        dex: 'UniswapV3',
+        price: '0',
+        liquidityUSD: '0'
+      };
+    }
+
     try {
       const WETH = new Token(
         1, // chainId
@@ -359,6 +380,14 @@ class DexService {
     tokenOut: TokenConfig,
     amount: string
   ): Promise<PriceQuote> {
+    if (this.isOperationCancelled) {
+      return {
+        dex: 'PancakeSwap',
+        price: '0',
+        liquidityUSD: '0'
+      };
+    }
+
     try {
       // Create proper Token instances for PancakeSwap SDK
       const WETH = new Token(
@@ -453,6 +482,10 @@ class DexService {
     tokenOut: TokenConfig,
     amount: string
   ): Promise<{ [key: string]: PriceQuote }> {
+    if (this.isOperationCancelled) {
+      return {};
+    }
+
     const prices: { [key: string]: PriceQuote } = {};
     let hasError = false;
 
@@ -489,6 +522,10 @@ class DexService {
     tokenOut: TokenConfig,
     amount: string
   ): Promise<ArbitrageOpportunity[]> {
+    if (this.isOperationCancelled) {
+      return [];
+    }
+
     try {
       console.log('Finding arbitrage opportunities for:', {
         tokenIn: tokenIn.symbol,
@@ -577,6 +614,13 @@ class DexService {
     dex,
     slippageTolerance
   }: ExecuteTradeParams): Promise<TradeResult> {
+    if (this.isOperationCancelled) {
+      return {
+        success: false,
+        error: 'Operation cancelled'
+      };
+    }
+
     if (!this.signer) {
       return {
         success: false,
