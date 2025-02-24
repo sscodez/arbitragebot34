@@ -99,6 +99,40 @@ export const SUPPORTED_CHAINS = {
             USDC: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',
             WBTC: '0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f'
         }
+    },
+    SOLANA: {
+        id: 'mainnet-beta',
+        name: 'Solana',
+        rpc: 'https://api.mainnet-beta.solana.com',
+        nativeCurrency: {
+            name: 'SOL',
+            symbol: 'SOL',
+            decimals: 9
+        },
+        blockExplorer: 'https://solscan.io',
+        dexes: {
+            RAYDIUM: {
+                name: 'Raydium',
+                programId: '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',
+                serumProgramId: '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin'
+            },
+            ORCA: {
+                name: 'Orca',
+                programId: '9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP'
+            },
+            JUPITER: {
+                name: 'Jupiter',
+                programId: 'JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB'
+            }
+        },
+        tokens: {
+            WSOL: 'So11111111111111111111111111111111111111112',
+            USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+            USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+            mSOL: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',
+            RAY: '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
+            SRM: 'SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt'
+        }
     }
 };
 

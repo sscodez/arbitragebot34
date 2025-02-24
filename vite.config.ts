@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import path from 'path'
 import tsconfigPaths from 'vite-tsconfig-paths'
 
@@ -27,14 +28,33 @@ export default defineConfig({
   plugins: [
     react(),
     tsconfigPaths(),
-    customResolver()
+    customResolver(),
+    nodePolyfills({
+      globals: {
+        Buffer: true,
+        global: true,
+        process: true,
+      },
+      protocolImports: true,
+    }),
   ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src')
     }
   },
+  css: {
+    modules: {
+      localsConvention: 'camelCase',
+    },
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      target: 'es2020',
+    },
+  },
   build: {
+    target: 'es2020',
     sourcemap: true,
     outDir: 'dist',
     rollupOptions: {

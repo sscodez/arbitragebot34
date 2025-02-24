@@ -30,3 +30,15 @@ export interface TokenBalances {
 export interface TokenPrices {
   [key: string]: string;
 }
+
+export interface TokenSelectorProps {
+  onPairSelect: (pair: SelectedPair) => void;
+  provider: ethers.providers.Web3Provider | null;
+  walletAddress: string;
+  selectedChain: string;
+}
+
+export interface SelectedPair {
+  fromToken: Token;
+  toToken: Token;
+}

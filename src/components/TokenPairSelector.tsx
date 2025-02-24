@@ -1,8 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ethers } from 'ethers';
 import { TokenSelectorProps, Token, SelectedPair } from '../types/token';
+import { SUPPORTED_CHAINS } from '../../constant/chains';
 
-const TokenPairSelector: React.FC<TokenSelectorProps> = ({ onPairSelect, provider, walletAddress }) => {
+const TokenPairSelector: React.FC<TokenSelectorProps> = ({ 
+  onPairSelect, 
+  provider, 
+  walletAddress,
+  selectedChain 
+}) => {
   const [fromToken, setFromToken] = useState<Token | null>(null);
   const [toToken, setToToken] = useState<Token | null>(null);
 
@@ -20,19 +26,23 @@ const TokenPairSelector: React.FC<TokenSelectorProps> = ({ onPairSelect, provide
     }
   };
 
-  // Mock tokens for demonstration
-  const availableTokens: Token[] = [
-    { symbol: 'ETH', address: '0x...', decimals: 18 },
-    { symbol: 'USDT', address: '0x...', decimals: 6 },
-    { symbol: 'USDC', address: '0x...', decimals: 6 },
-    { symbol: 'DAI', address: '0x...', decimals: 18 },
-  ];
+  // Get available tokens for the selected chain
+  const availableTokens = useMemo(() => {
+    const chainConfig = SUPPORTED_CHAINS[selectedChain];
+    if (!chainConfig) return [];
+
+    return Object.entries(chainConfig.tokens).map(([symbol, address]) => ({
+      symbol,
+      address,
+      decimals: symbol === chainConfig.nativeCurrency.symbol ? chainConfig.nativeCurrency.decimals : 18
+    }));
+  }, [selectedChain]);
 
   return (
     <div className="space-y-4">
       {/* From Token */}
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-muted-foreground">From Token</label>
+        <label className="block text-sm font-medium text-muted-foreground">From Token ({selectedChain})</label>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {availableTokens.map((token) => (
             <button
@@ -52,7 +62,7 @@ const TokenPairSelector: React.FC<TokenSelectorProps> = ({ onPairSelect, provide
 
       {/* To Token */}
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-muted-foreground">To Token</label>
+        <label className="block text-sm font-medium text-muted-foreground">To Token ({selectedChain})</label>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {availableTokens.map((token) => (
             <button

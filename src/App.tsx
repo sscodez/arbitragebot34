@@ -1,16 +1,28 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import WalletConnect from './components/WalletConnect';
+import SolanaWalletConnect from './components/SolanaWalletConnect';
 import TokenPairSelector from './components/TokenPairSelector';
 import TradingView from './components/TradingView';
 import Console from './components/Dashboard/Console';
 import ErrorBoundary from './components/ErrorBoundary';
 import Navbar from './components/Navbar';
+import ChainSelector from './components/ChainSelector';
 import { ethers } from 'ethers';
 import { WalletState, Log, SelectedPair, BotStatus } from './types/app';
 import DexService from './services/dexService';
 import api from './services/api';
 
-function App(): JSX.Element {
+// Solana imports
+import {
+  ConnectionProvider,
+  WalletProvider,
+} from '@solana/wallet-adapter-react';
+import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
+import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
+import { clusterApiUrl } from '@solana/web3.js';
+
+function AppContent(): JSX.Element {
   // State for wallet and provider
   const [provider, setProvider] = useState<ethers.providers.Web3Provider | null>(null);
   const [dexService, setDexService] = useState<DexService | null>(null);
@@ -22,6 +34,7 @@ function App(): JSX.Element {
   const [rpcUrl] = useState<string>(
     import.meta.env.VITE_RPC_URL || 'https://mainnet.infura.io/v3/your-infura-key'
   );
+  const [selectedChain, setSelectedChain] = useState<string>('BSC');
 
   // Trading configuration state
   const [tradingConfig, setTradingConfig] = useState<TradingConfig>({
@@ -726,30 +739,85 @@ function App(): JSX.Element {
       <main className="container mx-auto px-4 py-6">
         <div className="grid grid-cols-12 gap-6">
           {/* Left Column - Bot Controls */}
-          <div className="col-span-4 space-y-6">
+          <div className="col-span-12 lg:col-span-8 xl:col-span-9 space-y-6">
+            {/* Chain and Token Selection */}
+            <div className="grid gap-6">
+              <ChainSelector
+                selectedChain={selectedChain}
+                onChainSelect={setSelectedChain}
+              />
+              
+              <TokenPairSelector
+                onPairSelect={handlePairSelect}
+                provider={provider}
+                walletAddress={walletAddress}
+                selectedChain={selectedChain}
+              />
+            </div>
+
+            <div className="bg-card rounded-lg p-4 h-[400px] flex flex-col">
+              <h3 className="text-lg font-semibold mb-2">Console</h3>
+              <div className="flex-1 overflow-auto">
+                <Console
+                  logs={logs}
+                  onCommand={handleConsoleCommand}
+                  isRunning={botStatus.isRunning}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column - Settings and Controls */}
+          <div className="col-span-12 lg:col-span-4 xl:col-span-3 space-y-6">
             {/* Wallet Info */}
             <div className="bg-card rounded-lg shadow-glow p-6">
               <h2 className="text-xl font-semibold mb-4 text-primary">Wallet Configuration</h2>
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Private Key
-                  </label>
-                  <input
-                    type="password"
-                    value={privateKey}
-                    onChange={(e) => {
-                      const newKey = e.target.value;
-                      setPrivateKey(newKey);
-                      localStorage.setItem('arbitrage_private_key', newKey);
-                    }}
-                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
-                    placeholder="Enter your private key"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Your private key is stored locally and never sent to any server
-                  </p>
-                </div>
+                {selectedChain === 'SOLANA' ? (
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Connect your Phantom wallet to trade on Solana network
+                    </p>
+                    <SolanaWalletConnect
+                      onConnect={(publicKey) => {
+                        setWalletAddress(publicKey);
+                        setWallet({ address: publicKey });
+                      }}
+                      onDisconnect={() => {
+                        setWalletAddress('');
+                        setWallet(null);
+                      }}
+                    />
+                    {walletAddress && (
+                      <div className="mt-4 p-3 bg-secondary/50 rounded-lg border border-border">
+                        <p className="text-xs text-muted-foreground">Connected Address</p>
+                        <p className="font-mono text-sm truncate">{walletAddress}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-1">
+                        Private Key
+                      </label>
+                      <input
+                        type="password"
+                        value={privateKey}
+                        onChange={(e) => {
+                          const newKey = e.target.value;
+                          setPrivateKey(newKey);
+                          localStorage.setItem('arbitrage_private_key', newKey);
+                        }}
+                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
+                        placeholder="Enter your private key"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Your private key is stored locally and never sent to any server
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -861,16 +929,6 @@ function App(): JSX.Element {
               </div>
             </div>
 
-            {/* Token Pair Selector */}
-            <div className="bg-card rounded-lg shadow-glow p-6">
-              <h2 className="text-xl font-semibold mb-4 text-primary">Select Token Pair</h2>
-              <TokenPairSelector
-                onPairSelect={handlePairSelect}
-                provider={provider}
-                walletAddress={walletAddress}
-              />
-            </div>
-
             {/* Current Prices Section */}
             <div className="bg-card rounded-lg p-4 mb-4">
               <h3 className="text-lg font-semibold mb-2">Current Prices</h3>
@@ -939,47 +997,36 @@ function App(): JSX.Element {
             </div>
           </div>
 
-          {/* Right Column - Console and Trading View */}
-          <div className="col-span-8 space-y-6">
+          {/* Right Column - Console */}
+          <div className="col-span-12 lg:col-span-4 xl:col-span-3 space-y-6">
             {/* Console Section */}
-            <div className="bg-card rounded-lg p-4 h-[400px] flex flex-col">
-              <h3 className="text-lg font-semibold mb-2">Console</h3>
-              <div className="flex-1 overflow-auto">
-                <Console
-                  logs={logs}
-                  onCommand={handleConsoleCommand}
-                  isRunning={botStatus.isRunning}
-                />
-              </div>
-            </div>
-
-            {/* Trading View */}
-            <div className="bg-card rounded-lg shadow-glow p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold text-primary">Trading View</h2>
-                <div className="flex items-center space-x-2">
-                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm ${
-                    botStatus.isRunning
-                      ? 'bg-primary/20 text-primary'
-                      : 'bg-destructive/20 text-destructive'
-                  }`}>
-                    <span className={`w-2 h-2 rounded-full mr-2 ${
-                      botStatus.isRunning ? 'bg-primary' : 'bg-destructive'
-                    }`}></span>
-                    {botStatus.isRunning ? 'Running' : 'Stopped'}
-                  </span>
-                </div>
-              </div>
-              <TradingView
-                selectedPair={selectedPair}
-                provider={provider}
-                walletAddress={walletAddress}
-              />
-            </div>
+          
           </div>
         </div>
       </main>
     </div>
+  );
+}
+
+function App(): JSX.Element {
+  // Set up Solana wallet configuration
+  const network = WalletAdapterNetwork.Mainnet;
+  const endpoint = React.useMemo(() => clusterApiUrl(network), [network]);
+  const wallets = React.useMemo(
+    () => [new PhantomWalletAdapter()],
+    []
+  );
+
+  return (
+    <ConnectionProvider endpoint={endpoint}>
+      <WalletProvider wallets={wallets} autoConnect>
+        <WalletModalProvider>
+          <ErrorBoundary>
+            <AppContent />
+          </ErrorBoundary>
+        </WalletModalProvider>
+      </WalletProvider>
+    </ConnectionProvider>
   );
 }
 

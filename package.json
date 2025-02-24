@@ -24,6 +24,11 @@
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-dropdown-menu": "^2.0.6",
     "@radix-ui/react-tooltip": "^1.0.7",
+    "@solana/wallet-adapter-base": "^0.9.23",
+    "@solana/wallet-adapter-phantom": "^0.9.24",
+    "@solana/wallet-adapter-react": "^0.15.35",
+    "@solana/wallet-adapter-react-ui": "^0.9.35",
+    "@solana/web3.js": "^1.98.0",
     "@uniswap/sdk-core": "^7.5.0",
     "@uniswap/v2-sdk": "^4.13.0",
     "@uniswap/v3-sdk": "^3.24.0",
@@ -41,6 +46,7 @@
     "react-dom": "^18.2.0",
     "tailwind-merge": "^2.2.1",
     "tailwindcss-animate": "^1.0.7",
+    "vite-plugin-node-polyfills": "^0.23.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
