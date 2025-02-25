@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import React, { useState, useEffect, useCallback } from 'react';
 import WalletConnect from './components/WalletConnect';
 import SolanaWalletConnect from './components/SolanaWalletConnect';
@@ -11,6 +12,10 @@ import { ethers } from 'ethers';
 import { WalletState, Log, SelectedPair, BotStatus } from './types/app';
 import DexService from './services/dexService';
 import api from './services/api';
+import { SolanaPoolService } from './services/solana/poolService';
+import { SolanaTokenService } from './services/solana/tokenService';
+import { SUPPORTED_CHAINS } from '../constant/chains';
+import { PublicKey } from '@solana/web3.js';
 
 // Solana imports
 import {
@@ -109,6 +114,29 @@ function AppContent(): JSX.Element {
 
   // Trade execution permission state
   const [tradeExecutionEnabled, setTradeExecutionEnabled] = useState<boolean>(false);
+
+  // Solana-specific state
+  const [solanaOpportunities, setSolanaOpportunities] = useState<Array<{
+    buyDex: string;
+    sellDex: string;
+    profitPercent: number;
+    route: string;
+  }>>([]);
+  const [isSolanaScanning, setIsSolanaScanning] = useState(false);
+  const [selectedSolanaTokens, setSelectedSolanaTokens] = useState({
+    tokenA: SUPPORTED_CHAINS.SOLANA.tokens.USDC,
+    tokenB: SUPPORTED_CHAINS.SOLANA.tokens.RAY,
+  });
+
+  // Initialize Solana services
+  const solanaPoolService = React.useMemo(() => 
+    new SolanaPoolService(SUPPORTED_CHAINS.SOLANA.rpc),
+    []
+  );
+  const solanaTokenService = React.useMemo(() => 
+    new SolanaTokenService(SUPPORTED_CHAINS.SOLANA.rpc),
+    []
+  );
 
   // Initialize wallet from private key
   const initializeWalletFromPrivateKey = async (key: string) => {
@@ -352,66 +380,6 @@ function AppContent(): JSX.Element {
     }
   }, [botStatus.isRunning, selectedPair, dexService, tradingConfig]);
 
-  // Start bot functionality
-  const startBot = useCallback(async () => {
-    if (!dexService || !selectedPair) {
-      addLog('error', 'DexService or selected pair not initialized');
-      return;
-    }
-
-    setBotStatus(prev => ({ ...prev, isRunning: true }));
-
-    // Set up monitoring interval
-    const interval = setInterval(async () => {
-      try {
-        // First update prices
-        await updatePrices();
-
-        // Check for arbitrage opportunities
-        const opportunities = await dexService.findArbitrageOpportunities(
-          selectedPair.fromToken,
-          selectedPair.toToken,
-          tradingConfig.minTradeAmount.toString()
-        );
-
-        if (opportunities.length > 0) {
-          addLog('info', `Found ${opportunities.length} arbitrage opportunities:`);
-          opportunities.forEach(opp => {
-            addLog('info', `  ${opp.route} - Profit: ${opp.profitPercent}%`);
-          });
-
-          // Execute the most profitable trade if it meets our criteria
-          const bestOpportunity = opportunities[0];
-          if (parseFloat(bestOpportunity.profitPercent) >= tradingConfig.minProfitPercent) {
-            addLog('info', `Executing trade with ${bestOpportunity.profitPercent}% profit potential`);
-            await executeArbitrageTrade(bestOpportunity);
-          }
-        }
-      } catch (error: any) {
-        console.error('Error in monitoring loop:', error);
-        addLog('error', `Error monitoring opportunities: ${error.message}`);
-      }
-    }, 10000); // Check every 10 seconds
-
-    setMonitoringInterval(interval);
-
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-      }
-    };
-  }, [dexService, selectedPair, tradingConfig, executeArbitrageTrade]);
-
-  // Stop bot functionality
-  const stopBot = useCallback(() => {
-    if (monitoringInterval) {
-      clearInterval(monitoringInterval);
-      setMonitoringInterval(null);
-    }
-    setBotStatus(prev => ({ ...prev, isRunning: false }));
-    addLog('info', 'Bot stopped');
-  }, [monitoringInterval]);
-
   // Add log functionality
   const addLog = (type: 'info' | 'success' | 'error' | 'warning', message: string) => {
     setLogs(prev => [...prev, { type, message, timestamp: Date.now() }]);
@@ -428,6 +396,146 @@ function AppContent(): JSX.Element {
       setPriceUpdateInterval(null);
     }
   }, [monitoringInterval, priceUpdateInterval]);
+
+  // Add Solana scanning function
+  const scanSolanaOpportunities = useCallback(async () => {
+    if (!wallet?.address) {
+      addLog('error', 'Please connect your wallet first');
+      return;
+    }
+
+    setIsSolanaScanning(true);
+    addLog('info', 'Scanning for Solana arbitrage opportunities...');
+
+    try {
+      const tokenA = await solanaTokenService.getTokenInfo(selectedSolanaTokens.tokenA);
+      const tokenB = await solanaTokenService.getTokenInfo(selectedSolanaTokens.tokenB);
+
+      const opportunities = await solanaPoolService.findArbitrageOpportunities(
+        tokenA,
+        tokenB,
+        tradingConfig.minProfitPercent
+      );
+
+      setSolanaOpportunities(opportunities);
+      
+      if (opportunities.length > 0) {
+        opportunities.forEach(opp => {
+          addLog({
+            type: 'success',
+            message: `Found opportunity: ${opp.profitPercent.toFixed(2)}% profit - ${opp.route}`
+          });
+        });
+      } else {
+        addLog('info', 'No profitable opportunities found');
+      }
+    } catch (error) {
+      console.error('Error scanning Solana opportunities:', error);
+      addLog('error', `Failed to scan for opportunities: ${error}`);
+    } finally {
+      setIsSolanaScanning(false);
+    }
+  }, [wallet?.address, solanaPoolService, selectedSolanaTokens, tradingConfig.minProfitPercent]);
+
+  // Handle bot stop
+  const handleStopBot = useCallback(() => {
+    if (!botStatus.isRunning) {
+      addLog('warning', 'Bot is not running');
+      return;
+    }
+
+    try {
+      // Clear all intervals
+      clearAllIntervals();
+      
+      // Stop the bot
+      setBotStatus(prev => ({ ...prev, isRunning: false }));
+      addLog('info', 'Bot stopped successfully');
+    } catch (error) {
+      addLog('error', `Failed to stop bot: ${error}`);
+      // Ensure bot is marked as stopped even if there's an error
+      setBotStatus(prev => ({ ...prev, isRunning: false }));
+    }
+  }, [botStatus.isRunning, clearAllIntervals]);
+
+  // Handle start bot functionality
+  const handleStartBot = useCallback(async () => {
+    if (!wallet?.address) {
+      addLog('error', 'Please connect your wallet first');
+      return;
+    }
+
+    if (botStatus.isRunning) {
+      addLog('warning', 'Bot is already running');
+      return;
+    }
+
+    try {
+      setBotStatus(prev => ({ ...prev, isRunning: true }));
+      addLog('info', 'Bot started');
+
+      // Start monitoring loop
+      const interval = setInterval(async () => {
+        if (selectedChain === 'SOLANA') {
+          await scanSolanaOpportunities();
+        } else {
+          // Existing BSC/ETH monitoring logic
+          await updatePrices();
+        }
+      }, 30000); // Check every 30 seconds
+
+      setMonitoringInterval(interval);
+      addLog('success', 'Bot started successfully');
+    } catch (error) {
+      addLog('error', `Failed to start bot: ${error}`);
+      clearAllIntervals();
+      setBotStatus(prev => ({ ...prev, isRunning: false }));
+    }
+  }, [
+    wallet,
+    selectedChain,
+    botStatus.isRunning,
+    scanSolanaOpportunities,
+    updatePrices,
+    clearAllIntervals
+  ]);
+
+  // Cleanup intervals on unmount
+  useEffect(() => {
+    return () => {
+      if (monitoringInterval) {
+        clearInterval(monitoringInterval);
+      }
+    };
+  }, [monitoringInterval]);
+
+  // Add cleanup effect for component unmount
+  useEffect(() => {
+    return () => {
+      if (botStatus.isRunning) {
+        handleStopBot();
+      }
+    };
+  }, [botStatus.isRunning, handleStopBot]);
+
+  // Fetch gas price functionality
+  const fetchGasPrice = async () => {
+    try {
+      const price = await api.getGasPrice();
+      setGasPrice(price.fast);
+    } catch (error) {
+      console.error('Failed to fetch gas price:', error);
+    }
+  };
+
+  // Handle console command functionality
+  const handleConsoleCommand = (command: string) => {
+    if (command === 'clear') {
+      setLogs([]);
+      return;
+    }
+    addLog('info', command);
+  };
 
   // Update price fetching logic
   const fetchPrices = useCallback(async () => {
@@ -448,8 +556,8 @@ function AppContent(): JSX.Element {
 
   // Update price monitoring effect
   useEffect(() => {
-    let monitoringInterval: NodeJS.Timeout | null = null;
     let priceInterval: NodeJS.Timeout | null = null;
+    let monitoringInterval: NodeJS.Timeout | null = null;
 
     const startMonitoring = async () => {
       if (botStatus.isRunning && selectedPair && dexService) {
@@ -488,138 +596,6 @@ function AppContent(): JSX.Element {
     };
   }, [botStatus.isRunning, selectedPair, dexService, fetchPrices, updatePrices]);
 
-  // Handle stop bot functionality
-  const handleStopBot = useCallback(() => {
-    if (!botStatus.isRunning) {
-      addLog('warning', 'Bot is not running');
-      return;
-    }
-
-    try {
-      // Clear all intervals
-      clearAllIntervals();
-      
-      // Stop the bot
-      stopBot();
-      
-      // Reset all trading related states
-      setBotStatus(prev => ({
-        ...prev,
-        isRunning: false,
-        stats: {
-          totalProfit: '0.00',
-          dailyVolume: '0.00',
-          successRate: 0
-        }
-      }));
-      
-      // Clear all monitoring data
-      setCurrentPrices({});
-      setTradeHistory([]);
-      setTradingStats(prev => ({
-        ...prev,
-        dailyTrades: 0,
-        lastTradeTimestamp: 0
-      }));
-
-      // Cancel any pending operations
-      if (dexService) {
-        dexService.cancelAllOperations?.();  // Add this method to dexService if it doesn't exist
-      }
-      
-      addLog('info', 'Bot stopped successfully');
-    } catch (error) {
-      addLog('error', `Failed to stop bot: ${error}`);
-      // Ensure bot is marked as stopped even if there's an error
-      setBotStatus(prev => ({
-        ...prev,
-        isRunning: false
-      }));
-    }
-  }, [botStatus.isRunning, clearAllIntervals, stopBot, dexService]);
-
-  // Handle start bot functionality
-  const handleStartBot = useCallback(async () => {
-    if (!wallet || !dexService) {
-      addLog('error', 'Please connect your wallet first');
-      return;
-    }
-
-    if (!selectedPair) {
-      addLog('error', 'Please select a token pair first');
-      return;
-    }
-
-    if (!privateKey) {
-      addLog('error', 'Please enter your private key first');
-      return;
-    }
-
-    if (!provider) {
-      try {
-        const wallet = await initializeWalletFromPrivateKey(privateKey);
-        if (!wallet) {
-          return;
-        }
-      } catch (error) {
-        addLog('error', `Failed to initialize wallet: ${error}`);
-        return;
-      }
-    }
-
-    if (botStatus.isRunning) {
-      addLog('warning', 'Bot is already running');
-      return;
-    }
-
-    try {
-      // Clear any existing intervals before starting
-      clearAllIntervals();
-
-      addLog('info', 'Starting arbitrage bot...');
-      addLog('info', `Token pair: ${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}`);
-      addLog('info', `Min profit threshold: ${tradingConfig.minProfitPercent}%`);
-      addLog('info', `Max trade amount: ${tradingConfig.maxTradeAmount} ${selectedPair.fromToken.symbol}`);
-
-      // Set up new intervals
-      const newMonitoringInterval = setInterval(async () => {
-        updatePrices();
-      }, 10000); // 10 seconds interval
-
-      setMonitoringInterval(newMonitoringInterval);
-      setBotStatus(prev => ({
-        ...prev,
-        isRunning: true
-      }));
-
-      await startBot();
-      updatePrices();
-      
-      addLog('success', 'Bot started successfully');
-      addLog('info', 'Monitoring prices for arbitrage opportunities...');
-    } catch (error) {
-      addLog('error', `Failed to start bot: ${error}`);
-      clearAllIntervals();
-      setBotStatus(prev => ({
-        ...prev,
-        isRunning: false
-      }));
-    }
-  }, [
-    wallet,
-    dexService,
-    selectedPair,
-    privateKey,
-    provider,
-    botStatus.isRunning,
-    clearAllIntervals,
-    updatePrices,
-    tradingConfig.minProfitPercent,
-    tradingConfig.maxTradeAmount,
-    initializeWalletFromPrivateKey,
-    startBot
-  ]);
-
   // Handle wallet connect functionality
   const handleWalletConnect = async ({ address }: { address: string }): Promise<void> => {
     try {
@@ -642,24 +618,62 @@ function AppContent(): JSX.Element {
     addLog('info', `Selected pair: ${pair.fromToken.symbol}/${pair.toToken.symbol}`);
   };
 
-  // Fetch gas price functionality
-  const fetchGasPrice = async () => {
+  // Add Solana execution function
+  const executeSolanaArbitrage = async (opportunity: {
+    buyDex: string;
+    sellDex: string;
+    profitPercent: number;
+    route: string;
+  }) => {
+    if (!wallet?.address) {
+      addLog('error', 'Please connect your wallet first');
+      return;
+    }
+
+    if (!tradeExecutionEnabled) {
+      addLog('warning', 'Trade execution is disabled');
+      return;
+    }
+
     try {
-      const price = await api.getGasPrice();
-      setGasPrice(price.fast);
+      addLog('info', `Executing arbitrage: ${opportunity.route}`);
+      
+      const result = await solanaPoolService.executeArbitrage(
+        opportunity,
+        Number(tradingConfig.maxTradeAmount),
+        new PublicKey(wallet.address)
+      );
+
+      addLog('success', 'Arbitrage executed successfully');
+      
+      // Add to trade history
+      setTradeHistory(prev => [{
+        timestamp: Date.now(),
+        pair: `${selectedSolanaTokens.tokenA}/${selectedSolanaTokens.tokenB}`,
+        amount: tradingConfig.maxTradeAmount,
+        profit: opportunity.profitPercent,
+        status: 'success',
+        hash: result
+      }, ...prev]);
+
     } catch (error) {
-      console.error('Failed to fetch gas price:', error);
+      console.error('Error executing arbitrage:', error);
+      addLog('error', `Failed to execute arbitrage: ${error}`);
     }
   };
 
-  // Handle console command functionality
-  const handleConsoleCommand = (command: string) => {
-    if (command === 'clear') {
-      setLogs([]);
-      return;
+  // Effect for resetting daily stats
+  useEffect(() => {
+    const checkResetInterval = setInterval(resetDailyStats, 60000); // Check every minute
+    return () => clearInterval(checkResetInterval);
+  }, [resetDailyStats]);
+
+  // Initialize wallet when private key is available
+  useEffect(() => {
+    if (privateKey && !provider) {
+      initializeWalletFromPrivateKey(privateKey);
     }
-    addLog('info', command);
-  };
+  }, [privateKey, provider, rpcUrl]);
 
   // Update price update effect to clear interval when bot stops
   useEffect(() => {
@@ -694,37 +708,6 @@ function AppContent(): JSX.Element {
     };
   }, [botStatus.isRunning, selectedPair, dexService, updatePrices]);
 
-  // Effect for resetting daily stats
-  useEffect(() => {
-    const checkResetInterval = setInterval(resetDailyStats, 60000); // Check every minute
-    return () => clearInterval(checkResetInterval);
-  }, [resetDailyStats]);
-
-  // Initialize wallet when private key is available
-  useEffect(() => {
-    if (privateKey && !provider) {
-      initializeWalletFromPrivateKey(privateKey);
-    }
-  }, [privateKey, provider, rpcUrl]);
-
-  // Clean up monitoring interval
-  useEffect(() => {
-    return () => {
-      if (monitoringInterval) {
-        clearInterval(monitoringInterval);
-      }
-    };
-  }, [monitoringInterval]);
-
-  // Add cleanup effect for component unmount
-  useEffect(() => {
-    return () => {
-      if (botStatus.isRunning) {
-        handleStopBot();
-      }
-    };
-  }, [botStatus.isRunning, handleStopBot]);
-
   // Render JSX
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -747,260 +730,330 @@ function AppContent(): JSX.Element {
                 onChainSelect={setSelectedChain}
               />
               
-              <TokenPairSelector
-                onPairSelect={handlePairSelect}
-                provider={provider}
-                walletAddress={walletAddress}
-                selectedChain={selectedChain}
-              />
-            </div>
-
-            <div className="bg-card rounded-lg p-4 h-[400px] flex flex-col">
-              <h3 className="text-lg font-semibold mb-2">Console</h3>
-              <div className="flex-1 overflow-auto">
-                <Console
-                  logs={logs}
-                  onCommand={handleConsoleCommand}
-                  isRunning={botStatus.isRunning}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column - Settings and Controls */}
-          <div className="col-span-12 lg:col-span-4 xl:col-span-3 space-y-6">
-            {/* Wallet Info */}
-            <div className="bg-card rounded-lg shadow-glow p-6">
-              <h2 className="text-xl font-semibold mb-4 text-primary">Wallet Configuration</h2>
-              <div className="space-y-4">
-                {selectedChain === 'SOLANA' ? (
-                  <div className="space-y-4">
-                    <p className="text-sm text-muted-foreground">
-                      Connect your Phantom wallet to trade on Solana network
-                    </p>
-                    <SolanaWalletConnect
-                      onConnect={(publicKey) => {
-                        setWalletAddress(publicKey);
-                        setWallet({ address: publicKey });
-                      }}
-                      onDisconnect={() => {
-                        setWalletAddress('');
-                        setWallet(null);
-                      }}
-                    />
-                    {walletAddress && (
-                      <div className="mt-4 p-3 bg-secondary/50 rounded-lg border border-border">
-                        <p className="text-xs text-muted-foreground">Connected Address</p>
-                        <p className="font-mono text-sm truncate">{walletAddress}</p>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-muted-foreground mb-1">
-                        Private Key
-                      </label>
-                      <input
-                        type="password"
-                        value={privateKey}
-                        onChange={(e) => {
-                          const newKey = e.target.value;
-                          setPrivateKey(newKey);
-                          localStorage.setItem('arbitrage_private_key', newKey);
-                        }}
-                        className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
-                        placeholder="Enter your private key"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Your private key is stored locally and never sent to any server
-                      </p>
+              {selectedChain === 'SOLANA' ? (
+                <div className="col-span-12">
+                  <div className="bg-card rounded-lg shadow-glow p-6 space-y-6">
+                    <div className="flex justify-between items-center">
+                      <h2 className="text-xl font-semibold text-primary">Solana Arbitrage</h2>
+                      <button
+                        onClick={scanSolanaOpportunities}
+                        disabled={isSolanaScanning || !wallet?.address}
+                        className={`
+                          px-4 py-2 rounded-lg font-medium transition-all
+                          ${isSolanaScanning || !wallet?.address
+                            ? 'bg-primary/50 cursor-not-allowed'
+                            : 'bg-primary hover:bg-primary/90'
+                          }
+                          text-white
+                        `}
+                      >
+                        {isSolanaScanning ? 'Scanning...' : 'Scan for Opportunities'}
+                      </button>
                     </div>
-                  </div>
-                )}
-              </div>
-            </div>
 
-            {/* Bot Controls */}
-            <div className="bg-card rounded-lg shadow-glow p-6">
-              <h2 className="text-xl font-semibold mb-4 text-primary">Bot Controls</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Slippage Tolerance (%)
-                  </label>
-                  <input
-                    type="number"
-                    value={slippage}
-                    onChange={(e) => setSlippage(Number(e.target.value))}
-                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
-                    step="0.1"
-                    min="0.1"
-                    max="100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Gas Limit
-                  </label>
-                  <input
-                    type="number"
-                    value={gasLimit}
-                    onChange={(e) => setGasLimit(Number(e.target.value))}
-                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
-                    step="1000"
-                    min="21000"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Gas Price (Gwei)
-                  </label>
-                  <input
-                    type="number"
-                    value={gasPrice}
-                    onChange={(e) => setGasPrice(Number(e.target.value))}
-                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
-                    placeholder="Enter gas price"
-                    min="1"
-                    step="1"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Minimum Profit Threshold (%)
-                  </label>
-                  <input
-                    type="number"
-                    value={tradingConfig.minProfitPercent}
-                    onChange={(e) => setTradingConfig(prev => ({ ...prev, minProfitPercent: Number(e.target.value) }))}
-                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
-                    step="0.01"
-                    min="0.01"
-                    max="100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Max Trade Amount (USDT)
-                  </label>
-                  <input
-                    type="number"
-                    value={tradingConfig.maxTradeAmount}
-                    onChange={(e) => setTradingConfig(prev => ({ ...prev, maxTradeAmount: Number(e.target.value) }))}
-                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
-                    step="100"
-                    min="1"
-                    max="100000"
-                  />
-                </div>
-                <div className="flex gap-4">
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">
-                    Enable Trade Execution
-                  </label>
-                  <input
-                    type="checkbox"
-                    checked={tradeExecutionEnabled}
-                    onChange={(e) => setTradeExecutionEnabled(e.target.checked)}
-                  />
-                </div>
-                <div className="flex gap-4">
-                  <button
-                    onClick={handleStartBot}
-                    disabled={botStatus.isRunning}
-                    className={`flex-1 py-2 px-4 rounded-lg font-medium ${botStatus.isRunning
-                        ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                        : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                      }`}
-                  >
-                    Start Bot
-                  </button>
-                  <button
-                    onClick={handleStopBot}
-                    disabled={!botStatus.isRunning}
-                    className={`flex-1 py-2 px-4 rounded-lg font-medium ${!botStatus.isRunning
-                        ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                        : 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                      }`}
-                  >
-                    Stop Bot
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Current Prices Section */}
-            <div className="bg-card rounded-lg p-4 mb-4">
-              <h3 className="text-lg font-semibold mb-2">Current Prices</h3>
-              {selectedPair ? (
-                <div>
-                  <div className="text-sm text-gray-500 mb-2">
-                    {selectedPair.fromToken.symbol}/{selectedPair.toToken.symbol}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {Object.entries(currentPrices).map(([dex, data]) => (
-                      <div key={dex} className="bg-background p-3 rounded-lg">
-                        <div className="font-medium text-primary">{dex}</div>
-                        <div className="flex justify-between items-center mt-1">
-                          <span className="text-sm">Price:</span>
-                          <span className="font-medium">
-                            {data ? `$${parseFloat(data.price).toFixed(6)}` : 'N/A'}
-                          </span>
+                    <div className="space-y-4">
+                      {solanaOpportunities.map((opportunity, index) => (
+                        <div
+                          key={index}
+                          className="p-4 bg-secondary/50 border border-border rounded-lg space-y-3"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h3 className="font-medium text-foreground">
+                                {opportunity.profitPercent.toFixed(2)}% Profit Opportunity
+                              </h3>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {opportunity.route}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => executeSolanaArbitrage(opportunity)}
+                              disabled={!tradeExecutionEnabled || isSolanaScanning}
+                              className="px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Execute
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex justify-between items-center mt-1">
-                          <span className="text-sm">Liquidity:</span>
-                          <span className="font-medium">
-                            {data ? `$${parseFloat(data.liquidityUSD).toLocaleString()}` : 'N/A'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-gray-500 text-center py-4">
-                  Select a token pair to view prices
-                </div>
-              )}
-            </div>
+                      ))}
 
-            {/* Trade History Section */}
-            <div className="bg-card rounded-lg p-4">
-              <h3 className="text-lg font-semibold mb-2">Recent Trades</h3>
-              <div className="space-y-2">
-                {tradeHistory.map((trade, index) => (
-                  <div key={index} className={`p-2 rounded ${trade.status === 'success' ? 'bg-success/10' :
-                      trade.status === 'failed' ? 'bg-destructive/10' :
-                        'bg-muted'
-                    }`}>
-                    <div className="flex justify-between">
-                      <span>{trade.pair}</span>
-                      <span className={
-                        trade.status === 'success' ? 'text-success' :
-                          trade.status === 'failed' ? 'text-destructive' :
-                            'text-muted-foreground'
-                      }>
-                        {trade.status === 'success' ? `+${trade.profit}%` : trade.status}
-                      </span>
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      Amount: {trade.amount} USDT
-                      {trade.hash && (
-                        <span className="ml-2">
-                          Tx: {trade.hash.slice(0, 6)}...{trade.hash.slice(-4)}
-                        </span>
+                      {solanaOpportunities.length === 0 && !isSolanaScanning && (
+                        <div className="text-center text-muted-foreground py-8">
+                          No arbitrage opportunities found
+                        </div>
                       )}
                     </div>
                   </div>
-                ))}
+
+                  <div className="mt-6 bg-card rounded-lg p-4 h-[400px] flex flex-col">
+                    <h3 className="text-lg font-semibold mb-2">Console</h3>
+                    <div className="flex-1 overflow-auto">
+                      <Console
+                        logs={logs}
+                        onCommand={handleConsoleCommand}
+                        isRunning={botStatus.isRunning}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <TokenPairSelector
+                    onPairSelect={handlePairSelect}
+                    provider={provider}
+                    walletAddress={walletAddress}
+                    selectedChain={selectedChain}
+                  />
+                  
+                  <div className="bg-card rounded-lg p-4 h-[400px] flex flex-col">
+                    <h3 className="text-lg font-semibold mb-2">Console</h3>
+                    <div className="flex-1 overflow-auto">
+                      <Console
+                        logs={logs}
+                        onCommand={handleConsoleCommand}
+                        isRunning={botStatus.isRunning}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Right Column - Settings and Controls */}
+            <div className="col-span-12 lg:col-span-4 xl:col-span-3 space-y-6">
+              {/* Wallet Info */}
+              <div className="bg-card rounded-lg shadow-glow p-6">
+                <h2 className="text-xl font-semibold mb-4 text-primary">Wallet Configuration</h2>
+                <div className="space-y-4">
+                  {selectedChain === 'SOLANA' ? (
+                    <div className="space-y-4">
+                      <p className="text-sm text-muted-foreground">
+                        Connect your Phantom wallet to trade on Solana network
+                      </p>
+                      <SolanaWalletConnect
+                        onConnect={(publicKey) => {
+                          setWalletAddress(publicKey);
+                          setWallet({ address: publicKey });
+                        }}
+                        onDisconnect={() => {
+                          setWalletAddress('');
+                          setWallet(null);
+                        }}
+                      />
+                      {walletAddress && (
+                        <div className="mt-4 p-3 bg-secondary/50 rounded-lg border border-border">
+                          <p className="text-xs text-muted-foreground">Connected Address</p>
+                          <p className="font-mono text-sm truncate">{walletAddress}</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-muted-foreground mb-1">
+                          Private Key
+                        </label>
+                        <input
+                          type="password"
+                          value={privateKey}
+                          onChange={(e) => {
+                            const newKey = e.target.value;
+                            setPrivateKey(newKey);
+                            localStorage.setItem('arbitrage_private_key', newKey);
+                          }}
+                          className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
+                          placeholder="Enter your private key"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Your private key is stored locally and never sent to any server
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Bot Controls */}
+              <div className="bg-card rounded-lg shadow-glow p-6">
+                <h2 className="text-xl font-semibold mb-4 text-primary">Bot Controls</h2>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-muted-foreground mb-1">
+                      Slippage Tolerance (%)
+                    </label>
+                    <input
+                      type="number"
+                      value={slippage}
+                      onChange={(e) => setSlippage(Number(e.target.value))}
+                      className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
+                      step="0.1"
+                      min="0.1"
+                      max="100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-muted-foreground mb-1">
+                      Gas Limit
+                    </label>
+                    <input
+                      type="number"
+                      value={gasLimit}
+                      onChange={(e) => setGasLimit(Number(e.target.value))}
+                      className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
+                      step="1000"
+                      min="21000"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-muted-foreground mb-1">
+                      Gas Price (Gwei)
+                    </label>
+                    <input
+                      type="number"
+                      value={gasPrice}
+                      onChange={(e) => setGasPrice(Number(e.target.value))}
+                      className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
+                      placeholder="Enter gas price"
+                      min="1"
+                      step="1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-muted-foreground mb-1">
+                      Minimum Profit Threshold (%)
+                    </label>
+                    <input
+                      type="number"
+                      value={tradingConfig.minProfitPercent}
+                      onChange={(e) => setTradingConfig(prev => ({ ...prev, minProfitPercent: Number(e.target.value) }))}
+                      className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
+                      step="0.01"
+                      min="0.01"
+                      max="100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-muted-foreground mb-1">
+                      Max Trade Amount (USDT)
+                    </label>
+                    <input
+                      type="number"
+                      value={tradingConfig.maxTradeAmount}
+                      onChange={(e) => setTradingConfig(prev => ({ ...prev, maxTradeAmount: Number(e.target.value) }))}
+                      className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-foreground"
+                      step="100"
+                      min="1"
+                      max="100000"
+                    />
+                  </div>
+                  <div className="flex gap-4">
+                    <label className="block text-sm font-medium text-muted-foreground mb-1">
+                      Enable Trade Execution
+                    </label>
+                    <input
+                      type="checkbox"
+                      checked={tradeExecutionEnabled}
+                      onChange={(e) => setTradeExecutionEnabled(e.target.checked)}
+                    />
+                  </div>
+                  <div className="flex gap-4">
+                    <button
+                      onClick={handleStartBot}
+                      disabled={botStatus.isRunning}
+                      className={`flex-1 py-2 px-4 rounded-lg font-medium ${botStatus.isRunning
+                          ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                          : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                        }`}
+                    >
+                      Start Bot
+                    </button>
+                    <button
+                      onClick={handleStopBot}
+                      disabled={!botStatus.isRunning}
+                      className={`flex-1 py-2 px-4 rounded-lg font-medium ${!botStatus.isRunning
+                          ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                          : 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                        }`}
+                    >
+                      Stop Bot
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Current Prices Section */}
+              <div className="bg-card rounded-lg p-4 mb-4">
+                <h3 className="text-lg font-semibold mb-2">Current Prices</h3>
+                {selectedPair ? (
+                  <div>
+                    <div className="text-sm text-gray-500 mb-2">
+                      {selectedPair.fromToken.symbol}/{selectedPair.toToken.symbol}
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      {Object.entries(currentPrices).map(([dex, data]) => (
+                        <div key={dex} className="bg-background p-3 rounded-lg">
+                          <div className="font-medium text-primary">{dex}</div>
+                          <div className="flex justify-between items-center mt-1">
+                            <span className="text-sm">Price:</span>
+                            <span className="font-medium">
+                              {data ? `$${parseFloat(data.price).toFixed(6)}` : 'N/A'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center mt-1">
+                            <span className="text-sm">Liquidity:</span>
+                            <span className="font-medium">
+                              {data ? `$${parseFloat(data.liquidityUSD).toLocaleString()}` : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-gray-500 text-center py-4">
+                    Select a token pair to view prices
+                  </div>
+                )}
+              </div>
+
+              {/* Trade History Section */}
+              <div className="bg-card rounded-lg p-4">
+                <h3 className="text-lg font-semibold mb-2">Recent Trades</h3>
+                <div className="space-y-2">
+                  {tradeHistory.map((trade, index) => (
+                    <div key={index} className={`p-2 rounded ${trade.status === 'success' ? 'bg-success/10' :
+                        trade.status === 'failed' ? 'bg-destructive/10' :
+                          'bg-muted'
+                      }`}>
+                      <div className="flex justify-between">
+                        <span>{trade.pair}</span>
+                        <span className={
+                          trade.status === 'success' ? 'text-success' :
+                            trade.status === 'failed' ? 'text-destructive' :
+                              'text-muted-foreground'
+                        }>
+                          {trade.status === 'success' ? `+${trade.profit}%` : trade.status}
+                        </span>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Amount: {trade.amount} USDT
+                        {trade.hash && (
+                          <span className="ml-2">
+                            Tx: {trade.hash.slice(0, 6)}...{trade.hash.slice(-4)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Right Column - Console */}
-          <div className="col-span-12 lg:col-span-4 xl:col-span-3 space-y-6">
-            {/* Console Section */}
-          
+            {/* Right Column - Console */}
+            <div className="col-span-12 lg:col-span-4 xl:col-span-3 space-y-6">
+              {/* Console Section */}
+            
+            </div>
           </div>
         </div>
       </main>

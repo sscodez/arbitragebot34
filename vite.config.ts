@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { NodeGlobalsPolyfillPlugin } from '@esbuild-plugins/node-globals-polyfill';
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import path from 'path'
 import tsconfigPaths from 'vite-tsconfig-paths'
@@ -31,26 +32,38 @@ export default defineConfig({
     customResolver(),
     nodePolyfills({
       globals: {
-        Buffer: true,
         global: true,
         process: true,
       },
       protocolImports: true,
     }),
   ],
+  define: {
+    'process.env': {},
+    global: {},
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      target: 'es2020',
+      define: {
+        global: 'globalThis'
+      },
+      plugins: [
+        NodeGlobalsPolyfillPlugin({
+          buffer: true
+        })
+      ]
+    }
+  },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src')
+      '@': path.resolve(__dirname, 'src'),
+      'buffer': 'buffer/',
     }
   },
   css: {
     modules: {
       localsConvention: 'camelCase',
-    },
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      target: 'es2020',
     },
   },
   build: {

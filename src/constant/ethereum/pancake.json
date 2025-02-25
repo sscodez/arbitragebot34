@@ -1,0 +1,7 @@
+{
+  "name": "PancakeSwap V2",
+  "router-address": "0xEfF92A263d31888d860bD50809A8D171709b7b1c",
+  "router-abi": [
+    "function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)"
+  ]
+}
