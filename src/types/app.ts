@@ -1,20 +1,21 @@
 import { ethers } from 'ethers';
 import { Token } from './token';
 
-export interface WalletConnectProps {
-  onConnect: (data: { address: string }) => void;
-  rpcUrl: string;
-}
-
-export interface WalletState {
-  address: string;
-  signer: ethers.Signer;
-}
-
 export interface Log {
   type: 'success' | 'error' | 'info' | 'warning';
   message: string;
-  timestamp: string;
+  timestamp: number;
+  data?: any;
+  source?: string;
+  level?: 'low' | 'medium' | 'high';
+  txHash?: string;
+  metadata?: {
+    chain?: string;
+    pair?: string;
+    amount?: string;
+    gas?: string;
+    [key: string]: any;
+  };
 }
 
 export interface SelectedPair {
@@ -30,14 +31,64 @@ export interface TradingConfig {
   maxDailyTrades: number;
   minProfitPercent: number;
   maxTradeAmount: string;
-  minTradeAmount: string;
   slippageTolerance: number;
 }
 
-export interface TradingStats {
-  dailyTrades: number;
-  lastTradeTimestamp: number;
-  totalProfit: string;
-  successfulTrades: number;
-  failedTrades: number;
+export interface BotStatus {
+  isRunning: boolean;
+  address: string;
+  balance: string;
+}
+
+export interface Trade {
+  timestamp: number;
+  pair: string;
+  profit: string;
+  route: string;
+  status: string;
+}
+
+export interface StatCardProps {
+  title: string;
+  value: string;
+  description: string;
+}
+
+export interface TokenPairSelectorProps {
+  chain: string;
+  selectedPair: SelectedPair | null;
+  onPairSelect: (pair: SelectedPair) => void;
+}
+
+export interface BotControlProps {
+  status: BotStatus;
+  onStart: () => void;
+  onStop: () => void;
+  onToggleExecution: () => void;
+  isExecutionEnabled: boolean;
+}
+
+export interface TradingConfigProps {
+  config: TradingConfig;
+  onConfigChange: (config: TradingConfig) => void;
+}
+
+export interface PriceChartProps {
+  prices: any[];
+  pair: SelectedPair | null;
+}
+
+export interface TradeHistoryProps {
+  trades: Trade[];
+}
+
+export interface LogViewerProps {
+  logs: Log[];
+}
+
+export interface PhantomWalletConnectProps {
+  onConnect: (address: string) => void;
+  onDisconnect: () => void;
+  selectedChain: string;
+  onChainChange: (chain: string) => void;
 }

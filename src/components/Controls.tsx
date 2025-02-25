@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Button, 
@@ -11,9 +11,12 @@ import {
   MenuItem,
   Stack,
   Chip,
+  Paper,
 } from '@mui/material';
 import { PlayArrow, Stop, Settings } from '@mui/icons-material';
 import { CHAINS, DEXES } from '../config/chains';
+import { useArbitrage } from '../hooks/useArbitrage';
+import { useWallet } from '../hooks/useWallet';
 
 const Controls = ({ 
   isConnected, 
@@ -25,12 +28,24 @@ const Controls = ({
   selectedChain,
   selectedDexes,
 }) => {
+  const { isInitialized, error: arbitrageError, arbitrageService } = useArbitrage();
+  const { isConnected: walletConnected } = useWallet();
+  const [logs, setLogs] = useState<Log[]>([]);
   const isRunning = botStatus === 'running';
+
+  useEffect(() => {
+    if (arbitrageService) {
+      arbitrageService.setLogCallback((log: Log) => {
+        setLogs(prevLogs => [...prevLogs, log]);
+      });
+    }
+  }, [arbitrageService]);
 
   const handleChainChange = (event) => {
     const chain = event.target.value;
     onChainSelect(chain);
     onDexesSelect([]); // Reset DEX selection when chain changes
+    setLogs([]); // Clear logs when chain changes
   };
 
   const handleDexToggle = (dexKey) => {
@@ -43,7 +58,12 @@ const Controls = ({
     });
   };
 
-  const canStart = isConnected && selectedChain && selectedDexes.length > 0;
+  const handleStart = async () => {
+    setLogs([]); // Clear logs when starting
+    onStart();
+  };
+
+  const canStart = isConnected && selectedChain && selectedDexes.length > 0 && isInitialized;
 
   return (
     <Box>
@@ -51,98 +71,128 @@ const Controls = ({
         Bot Controls
       </Typography>
 
-      {!isConnected ? (
-        <Alert severity="warning" sx={{ mt: 2 }}>
-          Please connect your wallet to start trading
+      {arbitrageError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {arbitrageError}
         </Alert>
-      ) : (
-        <Stack spacing={2} sx={{ mt: 2 }}>
-          {/* Chain Selection */}
-          <FormControl fullWidth>
-            <InputLabel>Select Chain</InputLabel>
-            <Select
-              value={selectedChain}
-              label="Select Chain"
-              onChange={handleChainChange}
-              disabled={isRunning}
-            >
-              {Object.entries(CHAINS).map(([key, chain]) => (
-                <MenuItem key={key} value={key}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <span>{chain.icon}</span>
-                    {chain.name}
-                  </Box>
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {/* DEX Selection */}
-          {selectedChain && (
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Select DEXes to monitor
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {Object.entries(DEXES[selectedChain] || {}).map(([key, dex]) => (
-                  <Chip
-                    key={key}
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <span>{dex.icon}</span>
-                        {dex.name}
-                      </Box>
-                    }
-                    onClick={() => handleDexToggle(key)}
-                    color={selectedDexes.includes(key) ? 'primary' : 'default'}
-                    variant={selectedDexes.includes(key) ? 'filled' : 'outlined'}
-                    disabled={isRunning}
-                    sx={{ borderRadius: 2 }}
-                  />
-                ))}
-              </Box>
-            </Box>
-          )}
-
-          {/* Control Buttons */}
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Button
-              fullWidth
-              variant="contained"
-              color={isRunning ? 'error' : 'success'}
-              onClick={isRunning ? onStop : onStart}
-              startIcon={isRunning ? <Stop /> : <PlayArrow />}
-              disabled={!canStart}
-            >
-              {isRunning ? 'Stop Bot' : 'Start Bot'}
-            </Button>
-            
-            <Button
-              variant="outlined"
-              color="primary"
-              sx={{ minWidth: 'auto' }}
-              disabled={isRunning}
-            >
-              <Settings />
-            </Button>
-          </Box>
-
-          {isRunning && (
-            <Alert 
-              severity="info"
-              icon={<CircularProgress size={20} color="inherit" />}
-              sx={{ 
-                '& .MuiAlert-icon': { 
-                  alignItems: 'center',
-                  padding: '4px 0'
-                }
-              }}
-            >
-              Bot is running and searching for opportunities on {selectedDexes.length} DEXes...
-            </Alert>
-          )}
-        </Stack>
       )}
+
+      <Stack spacing={2}>
+        <FormControl fullWidth>
+          <InputLabel>Select Chain</InputLabel>
+          <Select
+            value={selectedChain || ''}
+            onChange={handleChainChange}
+            disabled={isRunning}
+          >
+            {Object.entries(CHAINS).map(([key, chain]) => (
+              <MenuItem key={key} value={key}>
+                {chain.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {selectedChain && (
+          <Box>
+            <Typography variant="subtitle2" gutterBottom>
+              Select DEXes
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
+              {Object.entries(DEXES[selectedChain] || {}).map(([key, dex]) => (
+                <Chip
+                  key={key}
+                  label={dex.name}
+                  onClick={() => handleDexToggle(key)}
+                  color={selectedDexes.includes(key) ? 'primary' : 'default'}
+                  disabled={isRunning}
+                />
+              ))}
+            </Stack>
+          </Box>
+        )}
+
+        <Stack direction="row" spacing={2}>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleStart}
+            disabled={!canStart || isRunning}
+            startIcon={<PlayArrow />}
+          >
+            Start Bot
+          </Button>
+          <Button
+            variant="outlined"
+            color="secondary"
+            onClick={onStop}
+            disabled={!isRunning}
+            startIcon={<Stop />}
+          >
+            Stop Bot
+          </Button>
+        </Stack>
+
+        {/* Bot Logs */}
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="h6" gutterBottom>
+            Bot Logs
+          </Typography>
+          <Paper
+            sx={{
+              height: '400px',
+              overflow: 'auto',
+              p: 2,
+              bgcolor: 'background.paper',
+              border: '1px solid',
+              borderColor: 'divider',
+            }}
+          >
+            {logs.length === 0 ? (
+              <Typography color="text.secondary" align="center">
+                No logs yet. Start the bot to see activity.
+              </Typography>
+            ) : (
+              logs.map((log, index) => (
+                <Box
+                  key={index}
+                  sx={{
+                    py: 1,
+                    borderBottom: index < logs.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'divider',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography
+                      variant="body2"
+                      color={
+                        log.type === 'error' ? 'error' :
+                        log.type === 'success' ? 'success.main' :
+                        'text.secondary'
+                      }
+                      sx={{ fontWeight: 'medium' }}
+                    >
+                      {log.message}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {new Date(log.timestamp).toLocaleTimeString()}
+                    </Typography>
+                  </Box>
+                  {log.metadata && (
+                    <Box sx={{ mt: 1, pl: 2 }}>
+                      {Object.entries(log.metadata).map(([key, value]) => (
+                        <Typography key={key} variant="caption" display="block" color="text.secondary">
+                          {key}: {typeof value === 'object' ? JSON.stringify(value) : value}
+                        </Typography>
+                      ))}
+                    </Box>
+                  )}
+                </Box>
+              ))
+            )}
+          </Paper>
+        </Box>
+      </Stack>
     </Box>
   );
 };

@@ -1,9 +1,17 @@
-import { ethers } from 'ethers';
-import { Token, Fetcher as UniswapFetcher, Route as UniswapRoute, Trade as UniswapTrade, TradeType, Pair as UniswapPair } from '@uniswap/v2-sdk';
-import { Token as PancakeToken, Fetcher as PancakeFetcher, Route as PancakeRoute, Trade as PancakeTrade, Pair as PancakePair } from '@pancakeswap/sdk';
+import { ethers, providers } from 'ethers';
+import {
+  ChainId,
+  Token as UniToken,
+  Pair as UniPair,
+  Route as UniRoute,
+  Trade as UniTrade,
+  TradeType,
+  Percent,
+  CurrencyAmount,
+  TokenAmount
+} from '@uniswap/sdk';
 import { JsonRpcProvider } from '@ethersproject/providers';
-import { UniswapV2, PancakeV2 } from '@/constant/ethereum';
-import { Percent } from '@uniswap/sdk-core';
+import { Fetcher } from '@uniswap/sdk';
 
 interface TokenInfo {
   address: string;
@@ -21,29 +29,40 @@ interface ArbitrageOpportunity {
   route: string;
 }
 
-type Address = `0x${string}`;
+interface Log {
+  type: string;
+  message: string;
+  timestamp: number;
+  metadata: any;
+}
 
-export class ETHDexService {
-  private provider: JsonRpcProvider;
-  private wallet: ethers.Wallet;
-  private chainId: number = 1; // Ethereum mainnet
+export class EthDexService {
+  private provider: providers.Web3Provider;
+  private addLog: (log: Log) => void;
 
-  private readonly UNISWAP_ROUTER = UniswapV2['router-address'];
-  private readonly PANCAKE_ROUTER = PancakeV2['router-address'];
-
-  constructor(provider: JsonRpcProvider, wallet: ethers.Wallet) {
+  constructor(provider: providers.Web3Provider, addLog: (log: Log) => void) {
     this.provider = provider;
-    this.wallet = wallet;
+    this.addLog = addLog;
   }
 
   async getTokenInfo(tokenAddress: string, symbol: string): Promise<TokenInfo> {
     try {
-      const uniswapToken = new Token(this.chainId, tokenAddress as Address, 18, symbol);
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        ['function decimals() view returns (uint8)', 'function name() view returns (string)'],
+        this.provider
+      );
+
+      const [decimals, name] = await Promise.all([
+        tokenContract.decimals(),
+        tokenContract.name()
+      ]);
+
       return {
         address: tokenAddress,
-        decimals: uniswapToken.decimals,
-        symbol: await uniswapToken.symbol,
-        name: await uniswapToken.name
+        symbol,
+        decimals,
+        name
       };
     } catch (error) {
       console.error('Error getting token info:', error);
@@ -59,46 +78,162 @@ export class ETHDexService {
     minProfitPercent: number
   ): Promise<ArbitrageOpportunity[]> {
     try {
-      const [tokenA, tokenB] = await Promise.all([
-        this.getTokenInfo(tokenAAddress, symbolA),
-        this.getTokenInfo(tokenBAddress, symbolB)
-      ]);
+      // Log checking Uniswap prices
+      this.addLog({
+        type: 'info',
+        message: `Checking Uniswap prices for ${symbolA}/${symbolB}`,
+        timestamp: Date.now(),
+        metadata: { dex: 'Uniswap', pair: `${symbolA}/${symbolB}` }
+      });
 
-      const uniswapTokenA = new Token(this.chainId, tokenAAddress as Address, tokenA.decimals, symbolA);
-      const uniswapTokenB = new Token(this.chainId, tokenBAddress as Address, tokenB.decimals, symbolB);
-      const pancakeTokenA = new PancakeToken(this.chainId, tokenAAddress as Address, tokenA.decimals, symbolA);
-      const pancakeTokenB = new PancakeToken(this.chainId, tokenBAddress as Address, tokenB.decimals, symbolB);
+      const uniswapPrice = await this.getUniswapPrice(tokenAAddress, tokenBAddress);
+      
+      // Log Uniswap prices
+      this.addLog({
+        type: 'info',
+        message: `Uniswap ${symbolA}/${symbolB} price: ${uniswapPrice.toFixed(8)}`,
+        timestamp: Date.now(),
+        metadata: {
+          dex: 'Uniswap',
+          pair: `${symbolA}/${symbolB}`,
+          price: uniswapPrice.toFixed(8)
+        }
+      });
 
-      const [uniswapPair, pancakePair] = await Promise.all([
-        UniswapFetcher.fetchPairData(uniswapTokenA, uniswapTokenB, this.provider),
-        PancakeFetcher.fetchPairData(pancakeTokenA, pancakeTokenB, this.provider)
-      ]);
+      // Log checking Sushiswap prices
+      this.addLog({
+        type: 'info',
+        message: `Checking Sushiswap prices for ${symbolA}/${symbolB}`,
+        timestamp: Date.now(),
+        metadata: { dex: 'Sushiswap', pair: `${symbolA}/${symbolB}` }
+      });
 
-      const uniswapPrice = uniswapPair.token1Price;
-      const pancakePrice = pancakePair.token1Price;
+      const sushiPrice = await this.getSushiswapPrice(tokenAAddress, tokenBAddress);
+      
+      // Log Sushiswap prices
+      this.addLog({
+        type: 'info',
+        message: `Sushiswap ${symbolA}/${symbolB} price: ${sushiPrice.toFixed(8)}`,
+        timestamp: Date.now(),
+        metadata: {
+          dex: 'Sushiswap',
+          pair: `${symbolA}/${symbolB}`,
+          price: sushiPrice.toFixed(8)
+        }
+      });
 
-      const priceDiff = Math.abs(
-        (Number(uniswapPrice.toSignificant(6)) - Number(pancakePrice.toSignificant(6))) /
-        Number(uniswapPrice.toSignificant(6)) * 100
-      );
+      // Calculate profit percentages
+      const uniToSushi = ((sushiPrice - uniswapPrice) / uniswapPrice) * 100;
+      const sushiToUni = ((uniswapPrice - sushiPrice) / sushiPrice) * 100;
 
-      if (priceDiff >= minProfitPercent) {
-        const buyOnUniswap = Number(uniswapPrice.toSignificant(6)) < Number(pancakePrice.toSignificant(6));
+      const opportunities: ArbitrageOpportunity[] = [];
 
-        return [{
-          tokenA: tokenA,
-          tokenB: tokenB,
-          profitPercent: priceDiff,
-          buyDex: buyOnUniswap ? UniswapV2.name : PancakeV2.name,
-          sellDex: buyOnUniswap ? PancakeV2.name : UniswapV2.name,
-          route: `${tokenA.symbol} -> ${tokenB.symbol}`
-        }];
+      // Check Uniswap -> Sushiswap
+      if (uniToSushi > minProfitPercent) {
+        opportunities.push({
+          tokenA: { address: tokenAAddress, symbol: symbolA },
+          tokenB: { address: tokenBAddress, symbol: symbolB },
+          profitPercent: uniToSushi,
+          buyDex: 'Uniswap',
+          sellDex: 'Sushiswap',
+          route: 'Uniswap -> Sushiswap'
+        });
       }
 
-      return [];
-    } catch (error) {
-      console.error('Error finding arbitrage opportunities:', error);
+      // Check Sushiswap -> Uniswap
+      if (sushiToUni > minProfitPercent) {
+        opportunities.push({
+          tokenA: { address: tokenAAddress, symbol: symbolA },
+          tokenB: { address: tokenBAddress, symbol: symbolB },
+          profitPercent: sushiToUni,
+          buyDex: 'Sushiswap',
+          sellDex: 'Uniswap',
+          route: 'Sushiswap -> Uniswap'
+        });
+      }
+
+      return opportunities;
+    } catch (error: any) {
+      this.addLog({
+        type: 'error',
+        message: `Error in ETH service: ${error.message}`,
+        timestamp: Date.now(),
+        metadata: {
+          pair: `${symbolA}/${symbolB}`,
+          error: error.message
+        }
+      });
       throw error;
+    }
+  }
+
+  private async getUniswapPrice(tokenAAddress: string, tokenBAddress: string): Promise<number> {
+    try {
+      const tokenAInstance = new UniToken(
+        ChainId.MAINNET,
+        tokenAAddress,
+        18,
+        'TokenA',
+        'TokenA'
+      );
+
+      const tokenBInstance = new UniToken(
+        ChainId.MAINNET,
+        tokenBAddress,
+        18,
+        'TokenB',
+        'TokenB'
+      );
+
+      const pair = await Fetcher.fetchPairData(tokenAInstance, tokenBInstance, this.provider);
+      const route = new UniRoute([pair], tokenAInstance);
+
+      const trade = new UniTrade(
+        route,
+        new TokenAmount(tokenAInstance, '1000000000000000000'),
+        TradeType.EXACT_INPUT
+      );
+
+      const expectedOutput = pair.token1Price.quote(trade.inputAmount);
+
+      return parseFloat(expectedOutput.toSignificant(6));
+    } catch {
+      return 0;
+    }
+  }
+
+  private async getSushiswapPrice(tokenAAddress: string, tokenBAddress: string): Promise<number> {
+    try {
+      const tokenAInstance = new UniToken(
+        ChainId.MAINNET,
+        tokenAAddress,
+        18,
+        'TokenA',
+        'TokenA'
+      );
+
+      const tokenBInstance = new UniToken(
+        ChainId.MAINNET,
+        tokenBAddress,
+        18,
+        'TokenB',
+        'TokenB'
+      );
+
+      const pair = await Fetcher.fetchPairData(tokenAInstance, tokenBInstance, this.provider);
+      const route = new UniRoute([pair], tokenAInstance);
+
+      const trade = new UniTrade(
+        route,
+        new TokenAmount(tokenAInstance, '1000000000000000000'),
+        TradeType.EXACT_INPUT
+      );
+
+      const expectedOutput = pair.token1Price.quote(trade.inputAmount);
+
+      return parseFloat(expectedOutput.toSignificant(6));
+    } catch {
+      return 0;
     }
   }
 
@@ -108,80 +243,12 @@ export class ETHDexService {
     amount: string,
     symbolA: string,
     symbolB: string,
-    buyOnUniswap: boolean,
+    buyOnFirstDex: boolean,
     slippageTolerance: number = 0.5
   ): Promise<string> {
     try {
-      const [tokenA, tokenB] = await Promise.all([
-        this.getTokenInfo(tokenAAddress, symbolA),
-        this.getTokenInfo(tokenBAddress, symbolB)
-      ]);
-
-      const amountIn = ethers.utils.parseUnits(amount, tokenA.decimals);
-
-      if (buyOnUniswap) {
-        const tokenAInstance = new Token(this.chainId, tokenAAddress as Address, tokenA.decimals, symbolA);
-        const tokenBInstance = new Token(this.chainId, tokenBAddress as Address, tokenB.decimals, symbolB);
-
-        const pair = await UniswapFetcher.fetchPairData(tokenAInstance, tokenBInstance, this.provider);
-        const route = new UniswapRoute([pair], tokenAInstance);
-
-        const trade = new UniswapTrade(
-          route,
-          new TokenAmount(tokenAInstance, amountIn.toString()),
-          TradeType.EXACT_INPUT
-        );
-
-        const slippage = new Percent(slippageTolerance, 100);
-        const amountOutMin = trade.minimumAmountOut(slippage).raw.toString();
-
-        const router = new ethers.Contract(
-          this.UNISWAP_ROUTER,
-          UniswapV2['router-abi'],
-          this.wallet
-        );
-
-        const tx = await router.swapExactTokensForTokens(
-          amountIn,
-          amountOutMin,
-          [tokenAAddress, tokenBAddress],
-          this.wallet.address,
-          Math.floor(Date.now() / 1000) + 1800
-        );
-
-        return tx.hash;
-      } else {
-        const tokenAInstance = new PancakeToken(this.chainId, tokenAAddress as Address, tokenA.decimals, symbolA);
-        const tokenBInstance = new PancakeToken(this.chainId, tokenBAddress as Address, tokenB.decimals, symbolB);
-
-        const pair = await PancakeFetcher.fetchPairData(tokenAInstance, tokenBInstance, this.provider);
-        const route = new PancakeRoute([pair], tokenAInstance);
-
-        const trade = new PancakeTrade(
-          route,
-          new TokenAmount(tokenAInstance, amountIn.toString()),
-          TradeType.EXACT_INPUT
-        );
-
-        const slippage = new Percent(slippageTolerance, 100);
-        const amountOutMin = trade.minimumAmountOut(slippage).raw.toString();
-
-        const router = new ethers.Contract(
-          this.PANCAKE_ROUTER,
-          PancakeV2['router-abi'],
-          this.wallet
-        );
-
-        const tx = await router.swapExactTokensForTokens(
-          amountIn,
-          amountOutMin,
-          [tokenAAddress, tokenBAddress],
-          this.wallet.address,
-          Math.floor(Date.now() / 1000) + 1800
-        );
-
-        return tx.hash;
-      }
+      // For now, just throw an error as we need to implement the actual arbitrage execution
+      throw new Error('Arbitrage execution not yet implemented for ETH');
     } catch (error) {
       console.error('Error executing arbitrage:', error);
       throw error;

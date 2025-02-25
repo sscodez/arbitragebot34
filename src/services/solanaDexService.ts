@@ -1,7 +1,7 @@
 import { Connection, PublicKey, Keypair } from '@solana/web3.js';
-import { Market, TokenAmount, Token, Liquidity } from '@raydium-io/raydium-sdk';
-import { DLMMClient } from '@meteora-ag/dlmm-sdk-public';
-import { Raydium, Meteora } from '@/constant/solana';
+import { Market } from '@project-serum/serum';
+import { QuoteResponse, SwapResponse } from '@jup-ag/api';
+import { Raydium } from '@/constant/solana';
 
 interface TokenInfo {
   address: string;
@@ -22,25 +22,32 @@ interface ArbitrageOpportunity {
 export class SolanaDexService {
   private connection: Connection;
   private wallet: Keypair;
-  private meteoraClient: DLMMClient;
+  private jupiterApiUrl = 'https://quote-api.jup.ag/v6';
 
   constructor(connection: Connection, wallet: Keypair) {
-    this.connection = connection;
+    this.connection = new Connection(connection.rpcEndpoint, {
+      wsEndpoint: connection.rpcEndpoint.replace('http', 'ws'),
+      commitment: 'confirmed'
+    });
     this.wallet = wallet;
-    this.meteoraClient = new DLMMClient(connection, Meteora.dlmmProgramId);
   }
 
   async getTokenInfo(tokenAddress: string, symbol: string): Promise<TokenInfo> {
     try {
       const tokenMint = new PublicKey(tokenAddress);
       const tokenInfo = await this.connection.getParsedAccountInfo(tokenMint);
-      const parsedData = tokenInfo.value?.data as any;
+      
+      if (!tokenInfo.value?.data || typeof tokenInfo.value.data !== 'object') {
+        throw new Error(`Token ${symbol} not found`);
+      }
+
+      const { decimals } = (tokenInfo.value.data as any).parsed.info;
 
       return {
         address: tokenAddress,
-        decimals: parsedData.parsed.info.decimals,
-        symbol: symbol,
-        name: parsedData.parsed.info.name || symbol
+        symbol,
+        decimals,
+        name: symbol
       };
     } catch (error) {
       console.error('Error getting token info:', error);
@@ -56,58 +63,134 @@ export class SolanaDexService {
     minProfitPercent: number
   ): Promise<ArbitrageOpportunity[]> {
     try {
-      const [tokenA, tokenB] = await Promise.all([
-        this.getTokenInfo(tokenAAddress, symbolA),
-        this.getTokenInfo(tokenBAddress, symbolB)
+      const opportunities: ArbitrageOpportunity[] = [];
+      
+      // Get quotes from both directions
+      const [forwardQuote, reverseQuote] = await Promise.all([
+        this.getQuote(tokenAAddress, tokenBAddress, '1000000'),
+        this.getQuote(tokenBAddress, tokenAAddress, '1000000')
       ]);
 
-      // Get Raydium pool info
-      const raydiumPool = await Liquidity.fetchMultipleInfo({
-        connection: this.connection,
-        pools: [{
-          id: new PublicKey(tokenAAddress),
-          baseMint: new PublicKey(tokenAAddress),
-          quoteMint: new PublicKey(tokenBAddress)
-        }]
+      // Log pool prices
+      console.log({
+        type: 'info',
+        message: `Pool Prices for ${symbolA}/${symbolB}`,
+        timestamp: Date.now(),
+        metadata: {
+          pair: `${symbolA}/${symbolB}`,
+          forwardPrice: this.calculatePrice(forwardQuote),
+          reversePrice: this.calculatePrice(reverseQuote),
+        }
       });
-
-      // Get Meteora pool info
-      const meteoraPools = await this.meteoraClient.getAllPools();
-      const meteoraPool = meteoraPools.find(pool => 
-        pool.tokenAMint.toBase58() === tokenAAddress && 
-        pool.tokenBMint.toBase58() === tokenBAddress
-      );
-
-      if (!raydiumPool || !meteoraPool) {
-        return [];
+      
+      // Check each route for arbitrage opportunities
+      for (const route of forwardQuote.routesInfos) {
+        const profitPercent = this.calculateProfitPercent(route);
+        
+        // Log opportunity if profit exceeds minimum
+        if (profitPercent >= minProfitPercent) {
+          const opportunity = {
+            tokenA: {
+              address: tokenAAddress,
+              symbol: symbolA,
+              decimals: route.marketInfos[0].inputDecimals,
+              name: symbolA
+            },
+            tokenB: {
+              address: tokenBAddress,
+              symbol: symbolB,
+              decimals: route.marketInfos[0].outputDecimals,
+              name: symbolB
+            },
+            profitPercent,
+            buyDex: route.marketInfos[0].label,
+            sellDex: route.marketInfos[route.marketInfos.length - 1].label,
+            route: route.marketInfos.map(info => info.label).join(' -> ')
+          };
+          
+          opportunities.push(opportunity);
+          
+          // Log the opportunity
+          console.log({
+            type: 'success',
+            message: `Found arbitrage opportunity for ${symbolA}/${symbolB}`,
+            timestamp: Date.now(),
+            metadata: {
+              pair: `${symbolA}/${symbolB}`,
+              profitPercent: profitPercent.toFixed(2) + '%',
+              route: opportunity.route,
+              buyDex: opportunity.buyDex,
+              sellDex: opportunity.sellDex,
+              buyPrice: this.calculatePrice(route),
+              sellPrice: this.calculateReversePrice(route)
+            }
+          });
+        }
       }
 
-      // Calculate prices
-      const raydiumPrice = parseFloat(raydiumPool[0].currentPrice.toFixed(6));
-      const meteoraPrice = parseFloat(meteoraPool.price.toFixed(6));
-
-      const priceDiff = Math.abs(
-        (raydiumPrice - meteoraPrice) / raydiumPrice * 100
-      );
-
-      if (priceDiff >= minProfitPercent) {
-        const buyOnRaydium = raydiumPrice < meteoraPrice;
-
-        return [{
-          tokenA,
-          tokenB,
-          profitPercent: priceDiff,
-          buyDex: buyOnRaydium ? Raydium.name : Meteora.name,
-          sellDex: buyOnRaydium ? Meteora.name : Raydium.name,
-          route: `${tokenA.symbol} -> ${tokenB.symbol}`
-        }];
+      // If no opportunities found, log that as well
+      if (opportunities.length === 0) {
+        console.log({
+          type: 'info',
+          message: `No profitable opportunities found for ${symbolA}/${symbolB}`,
+          timestamp: Date.now(),
+          metadata: {
+            pair: `${symbolA}/${symbolB}`,
+            minProfitPercent: minProfitPercent + '%'
+          }
+        });
       }
 
-      return [];
+      return opportunities;
     } catch (error) {
-      console.error('Error finding arbitrage opportunities:', error);
+      console.log({
+        type: 'error',
+        message: `Error finding arbitrage opportunities: ${error.message}`,
+        timestamp: Date.now(),
+        metadata: {
+          pair: `${symbolA}/${symbolB}`,
+          error: error.message
+        }
+      });
       throw error;
     }
+  }
+
+  private async getQuote(inputMint: string, outputMint: string, amount: string): Promise<QuoteResponse> {
+    const response = await fetch(`${this.jupiterApiUrl}/quote`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        inputMint,
+        outputMint,
+        amount,
+        slippageBps: 50,
+        onlyDirectRoutes: false,
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to get quote from Jupiter');
+    }
+
+    return await response.json();
+  }
+
+  private calculatePrice(quote: QuoteResponse | any): string {
+    if (!quote || !quote.outAmount || !quote.inAmount) return '0';
+    return (Number(quote.outAmount) / Number(quote.inAmount)).toFixed(6);
+  }
+
+  private calculateReversePrice(quote: any): string {
+    if (!quote || !quote.outAmount || !quote.inAmount) return '0';
+    return (Number(quote.inAmount) / Number(quote.outAmount)).toFixed(6);
+  }
+
+  private calculateProfitPercent(route: any): number {
+    if (!route || !route.outAmount || !route.inAmount) return 0;
+    return (Number(route.outAmount) / Number(route.inAmount) - 1) * 100;
   }
 
   async executeArbitrage(
@@ -116,77 +199,64 @@ export class SolanaDexService {
     amount: string,
     symbolA: string,
     symbolB: string,
-    buyOnRaydium: boolean,
+    buyOnFirstDex: boolean,
     slippageTolerance: number = 0.5
   ): Promise<string> {
     try {
-      const [tokenA, tokenB] = await Promise.all([
-        this.getTokenInfo(tokenAAddress, symbolA),
-        this.getTokenInfo(tokenBAddress, symbolB)
-      ]);
+      const amountInBaseUnits = (parseFloat(amount) * Math.pow(10, 6)).toString(); // Assuming 6 decimals
 
-      const amountIn = new TokenAmount(
-        new Token(new PublicKey(tokenAAddress), tokenA.decimals),
-        amount
+      // Get quote
+      const quoteResponse = await fetch(`${this.jupiterApiUrl}/quote`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          inputMint: tokenAAddress,
+          outputMint: tokenBAddress,
+          amount: amountInBaseUnits,
+          slippageBps: Math.floor(slippageTolerance * 100),
+          onlyDirectRoutes: false,
+        })
+      });
+
+      if (!quoteResponse.ok) {
+        throw new Error('Failed to get quote from Jupiter');
+      }
+
+      const quote: QuoteResponse = await quoteResponse.json();
+      
+      if (quote.routesInfos.length === 0) {
+        throw new Error('No routes found for arbitrage');
+      }
+
+      // Get swap transaction
+      const swapResponse = await fetch(`${this.jupiterApiUrl}/swap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          quoteResponse: quote,
+          userPublicKey: this.wallet.publicKey.toString(),
+          wrapUnwrapSOL: true,
+        })
+      });
+
+      if (!swapResponse.ok) {
+        throw new Error('Failed to get swap transaction from Jupiter');
+      }
+
+      const swapResult: SwapResponse = await swapResponse.json();
+
+      // Sign and send the transaction
+      const transaction = swapResult.swapTransaction;
+      const signature = await this.connection.sendRawTransaction(
+        Buffer.from(transaction, 'base64'),
+        { skipPreflight: true }
       );
 
-      if (buyOnRaydium) {
-        // Execute on Raydium
-        const pool = await Liquidity.fetchMultipleInfo({
-          connection: this.connection,
-          pools: [{
-            id: new PublicKey(tokenAAddress),
-            baseMint: new PublicKey(tokenAAddress),
-            quoteMint: new PublicKey(tokenBAddress)
-          }]
-        });
-
-        const minAmountOut = pool[0].currentPrice
-          .mul(amountIn.toAmount())
-          .mul(1 - slippageTolerance / 100);
-
-        const tx = await Liquidity.makeSwapTransaction({
-          connection: this.connection,
-          poolKeys: pool[0].keys,
-          userKeys: {
-            tokenAccounts: [],
-            owner: this.wallet.publicKey
-          },
-          amountIn,
-          minAmountOut,
-          fixedSide: 'in'
-        });
-
-        const signature = await this.connection.sendTransaction(tx.transaction, [this.wallet]);
-        return signature;
-
-      } else {
-        // Execute on Meteora
-        const pools = await this.meteoraClient.getAllPools();
-        const pool = pools.find(p => 
-          p.tokenAMint.toBase58() === tokenAAddress && 
-          p.tokenBMint.toBase58() === tokenBAddress
-        );
-
-        if (!pool) {
-          throw new Error('Pool not found');
-        }
-
-        const minAmountOut = pool.price
-          .mul(amountIn.toAmount())
-          .mul(1 - slippageTolerance / 100);
-
-        const tx = await this.meteoraClient.swap({
-          pool,
-          amount: amountIn.toAmount(),
-          tokenMint: new PublicKey(tokenAAddress),
-          slippage: slippageTolerance,
-          wallet: this.wallet
-        });
-
-        const signature = await this.connection.sendTransaction(tx, [this.wallet]);
-        return signature;
-      }
+      return signature;
     } catch (error) {
       console.error('Error executing arbitrage:', error);
       throw error;

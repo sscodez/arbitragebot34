@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-colors;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary-hover;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+  }
+
+  .btn-destructive {
+    @apply bg-destructive text-destructive-foreground hover:bg-destructive/90;
+  }
+
+  .input {
+    @apply form-input block w-full rounded-lg border-gray-300 bg-background text-foreground focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50;
+  }
+
+  .select {
+    @apply form-select block w-full rounded-lg border-gray-300 bg-background text-foreground focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50;
+  }
+
+  .card {
+    @apply bg-card rounded-lg shadow-glow p-6;
+  }
+}
+
+/* Wallet Adapter UI Overrides */
+.wallet-adapter-button {
+  @apply bg-primary text-primary-foreground hover:bg-primary-hover !important;
+}
+
+.wallet-adapter-modal-wrapper {
+  @apply bg-background !important;
+}
+
+.wallet-adapter-modal-button-close {
+  @apply bg-secondary text-secondary-foreground !important;
+}
+
+.wallet-adapter-modal-title {
+  @apply text-foreground !important;
+}
+
+.wallet-adapter-modal-content {
+  @apply text-foreground !important;
+}
+
+.wallet-adapter-modal-list {
+  @apply bg-card !important;
+}
+
+.wallet-adapter-modal-list-more {
+  @apply text-primary !important;
+}

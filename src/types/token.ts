@@ -5,7 +5,7 @@ export interface Token {
   name: string;
   symbol: string;
   decimals: number;
-  logoURI?: string;
+  icon?: string;
 }
 
 export interface TokenPairSelectorProps {
@@ -41,4 +41,9 @@ export interface TokenSelectorProps {
 export interface SelectedPair {
   fromToken: Token;
   toToken: Token;
+}
+
+export interface TokenWithBalance extends Token {
+  balance: string;
+  price: string;
 }

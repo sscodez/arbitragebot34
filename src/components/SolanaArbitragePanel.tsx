@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
-import { SolanaPoolService } from '../services/solana/poolService';
-import { SolanaTokenService } from '../services/solana/tokenService';
-import { SUPPORTED_CHAINS } from '../../constant/chains';
+import { SUPPORTED_CHAINS } from '@/constant/chains';
+import { ArbitrageService } from '@/services/ArbitrageService';
+import { TokenConfig } from '@/constant/chains';
 
 interface ArbitrageOpportunity {
   buyDex: string;
@@ -18,12 +18,9 @@ const SolanaArbitragePanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTokens, setSelectedTokens] = useState({
-    tokenA: SUPPORTED_CHAINS.SOLANA.tokens.USDC,
-    tokenB: SUPPORTED_CHAINS.SOLANA.tokens.RAY,
+    tokenA: SUPPORTED_CHAINS.solana.tokens.USDC,
+    tokenB: SUPPORTED_CHAINS.solana.tokens.RAY,
   });
-
-  const poolService = new SolanaPoolService(SUPPORTED_CHAINS.SOLANA.rpc);
-  const tokenService = new SolanaTokenService(SUPPORTED_CHAINS.SOLANA.rpc);
 
   const findOpportunities = async () => {
     if (!connected || !publicKey) {
@@ -35,12 +32,14 @@ const SolanaArbitragePanel: React.FC = () => {
     setError(null);
 
     try {
-      const tokenA = await tokenService.getTokenInfo(selectedTokens.tokenA);
-      const tokenB = await tokenService.getTokenInfo(selectedTokens.tokenB);
+      const arbitrageService = new ArbitrageService();
+      await arbitrageService.initialize('solana', null, null); // We'll update this with proper connection later
 
-      const opportunities = await poolService.findArbitrageOpportunities(
-        tokenA,
-        tokenB,
+      const opportunities = await arbitrageService.findArbitrageOpportunities(
+        selectedTokens.tokenA.address,
+        selectedTokens.tokenB.address,
+        selectedTokens.tokenA.symbol,
+        selectedTokens.tokenB.symbol,
         0.5 // Min profit percentage
       );
 
@@ -63,10 +62,17 @@ const SolanaArbitragePanel: React.FC = () => {
     setError(null);
 
     try {
-      const result = await poolService.executeArbitrage(
-        opportunity,
-        1000, // Amount in USDC
-        publicKey
+      const arbitrageService = new ArbitrageService();
+      await arbitrageService.initialize('solana', null, null); // We'll update this with proper connection later
+
+      const result = await arbitrageService.executeArbitrage(
+        selectedTokens.tokenA.address,
+        selectedTokens.tokenB.address,
+        '1000000', // 1 USDC (6 decimals)
+        selectedTokens.tokenA.symbol,
+        selectedTokens.tokenB.symbol,
+        opportunity.buyDex === 'Jupiter',
+        0.5 // 0.5% slippage
       );
 
       console.log('Arbitrage executed:', result);

@@ -1,22 +1,11 @@
-import { ethers } from 'ethers';
-import { ChainId, Token, Fetcher, Route, Trade, TokenAmount, TradeType, Price } from '@biswap/sdk';
-import { Token as PancakeToken, Pair as PancakePair } from '@pancakeswap/sdk';
-import { JsonRpcProvider } from '@ethersproject/providers';
-import { Pancake, BiSwap } from '@/constant/binance';
+import { ethers, providers } from 'ethers';
+import { Token, Fetcher, Route, Trade, TradeType, Pair } from '@pancakeswap/sdk';
+
 interface TokenInfo {
   address: string;
   symbol: string;
   decimals: number;
   name: string;
-}
-
-interface PoolInfo {
-  dex: string;
-  tokenA: TokenInfo;
-  tokenB: TokenInfo;
-  reserve0: string;
-  reserve1: string;
-  price: string;
 }
 
 interface ArbitrageOpportunity {
@@ -28,31 +17,57 @@ interface ArbitrageOpportunity {
   route: string;
 }
 
-export class BSCDexService {
-  private provider: JsonRpcProvider;
-  private wallet: ethers.Wallet;
-  private chainId = ChainId.MAINNET; // BSC Mainnet
+interface PoolInfo {
+  dex: string;
+  tokenA: TokenInfo;
+  tokenB: TokenInfo;
+  reserve0: string;
+  reserve1: string;
+  price: string;
+}
 
-  private readonly PANCAKE_ROUTER = Pancake['router-address'];
-  private readonly BISWAP_ROUTER = BiSwap['router-address'];
+type Address = `0x${string}`;
 
+interface Log {
+  type: string;
+  message: string;
+  timestamp: number;
+  metadata: any;
+}
 
+export class BscDexService {
+  private provider: providers.Web3Provider;
+  private wallet: any;
+  private chainId = 56; // BSC mainnet
+  private addLog: (log: Log) => void;
 
-  constructor(provider: JsonRpcProvider, wallet: ethers.Wallet) {
+  private readonly PANCAKE_ROUTER = '0x05fF2B0DB69458A0750badebc4f9e3DcF808cEeF'; // PancakeSwap router address
+  private readonly BISWAP_ROUTER = '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506'; // BiSwap router address
+
+  constructor(provider: providers.Web3Provider, wallet: any, addLog: (log: Log) => void) {
     this.provider = provider;
     this.wallet = wallet;
+    this.addLog = addLog;
   }
 
-  async getTokenInfo(tokenAddress: string): Promise<TokenInfo> {
+  async getTokenInfo(tokenAddress: string, symbol: string): Promise<TokenInfo> {
     try {
-      const pancakeToken = new PancakeToken(this.chainId, tokenAddress, 18); // Default to 18 decimals
-      const biswapToken = new Token(this.chainId, tokenAddress, 18);
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        ['function decimals() view returns (uint8)', 'function name() view returns (string)'],
+        this.provider
+      );
+
+      const [decimals, name] = await Promise.all([
+        tokenContract.decimals(),
+        tokenContract.name()
+      ]);
 
       return {
         address: tokenAddress,
-        decimals: pancakeToken.decimals,
-        symbol: await pancakeToken.symbol,
-        name: await pancakeToken.name
+        symbol,
+        decimals,
+        name
       };
     } catch (error) {
       console.error('Error getting token info:', error);
@@ -63,49 +78,141 @@ export class BSCDexService {
   async findArbitrageOpportunities(
     tokenAAddress: string,
     tokenBAddress: string,
+    symbolA: string,
+    symbolB: string,
     minProfitPercent: number
   ): Promise<ArbitrageOpportunity[]> {
     try {
-      const [tokenA, tokenB] = await Promise.all([
-        this.getTokenInfo(tokenAAddress),
-        this.getTokenInfo(tokenBAddress)
-      ]);
+      // Log checking PancakeSwap prices
+      this.addLog({
+        type: 'info',
+        message: `Checking PancakeSwap prices for ${symbolA}/${symbolB}`,
+        timestamp: Date.now(),
+        metadata: { dex: 'PancakeSwap', pair: `${symbolA}/${symbolB}` }
+      });
 
-      const pancakeTokenA = new PancakeToken(this.chainId, tokenAAddress, tokenA.decimals);
-      const pancakeTokenB = new PancakeToken(this.chainId, tokenBAddress, tokenB.decimals);
-      const biswapTokenA = new Token(this.chainId, tokenAAddress, tokenA.decimals);
-      const biswapTokenB = new Token(this.chainId, tokenBAddress, tokenB.decimals);
+      const pancakePrice = await this.getPancakeSwapPrice(tokenAAddress, tokenBAddress);
+      
+      // Log PancakeSwap prices
+      this.addLog({
+        type: 'info',
+        message: `PancakeSwap ${symbolA}/${symbolB} price: ${pancakePrice.toFixed(8)}`,
+        timestamp: Date.now(),
+        metadata: {
+          dex: 'PancakeSwap',
+          pair: `${symbolA}/${symbolB}`,
+          price: pancakePrice.toFixed(8)
+        }
+      });
 
-      const [pancakePair, biswapPair] = await Promise.all([
-        PancakePair.fetchData(pancakeTokenA, pancakeTokenB, this.provider),
-        Fetcher.fetchPairData(biswapTokenA, biswapTokenB, this.provider)
-      ]);
+      // Log checking BiSwap prices
+      this.addLog({
+        type: 'info',
+        message: `Checking BiSwap prices for ${symbolA}/${symbolB}`,
+        timestamp: Date.now(),
+        metadata: { dex: 'BiSwap', pair: `${symbolA}/${symbolB}` }
+      });
 
-      const pancakePrice = pancakePair.token1Price;
-      const biswapPrice = new Price(biswapTokenA, biswapTokenB, biswapPair.token0.raw.toString(), biswapPair.token1.raw.toString());
+      const biswapPrice = await this.getBiSwapPrice(tokenAAddress, tokenBAddress);
+      
+      // Log BiSwap prices
+      this.addLog({
+        type: 'info',
+        message: `BiSwap ${symbolA}/${symbolB} price: ${biswapPrice.toFixed(8)}`,
+        timestamp: Date.now(),
+        metadata: {
+          dex: 'BiSwap',
+          pair: `${symbolA}/${symbolB}`,
+          price: biswapPrice.toFixed(8)
+        }
+      });
 
-      const priceDiff = Math.abs(
-        (Number(pancakePrice.toSignificant(6)) - Number(biswapPrice.toSignificant(6))) / 
-        Number(pancakePrice.toSignificant(6)) * 100
-      );
+      // Calculate profit percentages
+      const pancakeToBiswap = ((biswapPrice - pancakePrice) / pancakePrice) * 100;
+      const biswapToPancake = ((pancakePrice - biswapPrice) / biswapPrice) * 100;
 
-      if (priceDiff >= minProfitPercent) {
-        const buyOnBiswap = Number(biswapPrice.toSignificant(6)) < Number(pancakePrice.toSignificant(6));
-        
-        return [{
-          tokenA: tokenA,
-          tokenB: tokenB,
-          profitPercent: priceDiff,
-          buyDex: buyOnBiswap ? BiSwap.name : Pancake.name,
-          sellDex: buyOnBiswap ? Pancake.name : BiSwap.name,
-          route: `${tokenA.symbol} -> ${tokenB.symbol}`
-        }];
+      const opportunities: ArbitrageOpportunity[] = [];
+
+      // Check PancakeSwap -> BiSwap
+      if (pancakeToBiswap > minProfitPercent) {
+        opportunities.push({
+          tokenA: { address: tokenAAddress, symbol: symbolA },
+          tokenB: { address: tokenBAddress, symbol: symbolB },
+          profitPercent: pancakeToBiswap,
+          buyDex: 'PancakeSwap',
+          sellDex: 'BiSwap',
+          route: 'PancakeSwap -> BiSwap'
+        });
       }
 
-      return [];
-    } catch (error) {
-      console.error('Error finding arbitrage opportunities:', error);
+      // Check BiSwap -> PancakeSwap
+      if (biswapToPancake > minProfitPercent) {
+        opportunities.push({
+          tokenA: { address: tokenAAddress, symbol: symbolA },
+          tokenB: { address: tokenBAddress, symbol: symbolB },
+          profitPercent: biswapToPancake,
+          buyDex: 'BiSwap',
+          sellDex: 'PancakeSwap',
+          route: 'BiSwap -> PancakeSwap'
+        });
+      }
+
+      return opportunities;
+    } catch (error: any) {
+      this.addLog({
+        type: 'error',
+        message: `Error in BSC service: ${error.message}`,
+        timestamp: Date.now(),
+        metadata: {
+          pair: `${symbolA}/${symbolB}`,
+          error: error.message
+        }
+      });
       throw error;
+    }
+  }
+
+  private async getPancakeSwapPrice(tokenAAddress: string, tokenBAddress: string): Promise<number> {
+    try {
+      const tokenAInstance = new Token(this.chainId, tokenAAddress, 18, 'TokenA', 'TokenA');
+      const tokenBInstance = new Token(this.chainId, tokenBAddress, 18, 'TokenB', 'TokenB');
+
+      const pair = await Fetcher.fetchPairData(tokenAInstance, tokenBInstance, this.provider);
+      const route = new Route([pair], tokenAInstance);
+
+      const trade = new Trade(
+        route,
+        new TokenAmount(tokenAInstance, '1000000000000000000'),
+        TradeType.EXACT_INPUT
+      );
+
+      const expectedOutput = pair.token1Price.quote(trade.inputAmount);
+
+      return parseFloat(expectedOutput.toSignificant(6));
+    } catch {
+      return 0;
+    }
+  }
+
+  private async getBiSwapPrice(tokenAAddress: string, tokenBAddress: string): Promise<number> {
+    try {
+      const tokenAInstance = new Token(this.chainId, tokenAAddress, 18, 'TokenA', 'TokenA');
+      const tokenBInstance = new Token(this.chainId, tokenBAddress, 18, 'TokenB', 'TokenB');
+
+      const pair = await Fetcher.fetchPairData(tokenAInstance, tokenBInstance, this.provider);
+      const route = new Route([pair], tokenAInstance);
+
+      const trade = new Trade(
+        route,
+        new TokenAmount(tokenAInstance, '1000000000000000000'),
+        TradeType.EXACT_INPUT
+      );
+
+      const expectedOutput = pair.token1Price.quote(trade.inputAmount);
+
+      return parseFloat(expectedOutput.toSignificant(6));
+    } catch {
+      return 0;
     }
   }
 
@@ -113,37 +220,39 @@ export class BSCDexService {
     tokenAAddress: string,
     tokenBAddress: string,
     amount: string,
-    buyOnBiswap: boolean,
+    symbolA: string,
+    symbolB: string,
+    buyOnFirstDex: boolean,
     slippageTolerance: number = 0.5
   ): Promise<string> {
     try {
       const [tokenA, tokenB] = await Promise.all([
-        this.getTokenInfo(tokenAAddress),
-        this.getTokenInfo(tokenBAddress)
+        this.getTokenInfo(tokenAAddress, symbolA),
+        this.getTokenInfo(tokenBAddress, symbolB)
       ]);
 
       const amountIn = ethers.utils.parseUnits(amount, tokenA.decimals);
 
-      if (buyOnBiswap) {
-      
-        const tokenAInstance = new Token(this.chainId, tokenAAddress, tokenA.decimals);
-        const tokenBInstance = new Token(this.chainId, tokenBAddress, tokenB.decimals);
+      if (buyOnFirstDex) {
+
+        const tokenAInstance = new Token(this.chainId, tokenAAddress, tokenA.decimals, tokenA.symbol, tokenA.name);
+        const tokenBInstance = new Token(this.chainId, tokenBAddress, tokenB.decimals, tokenB.symbol, tokenB.name);
 
         const pair = await Fetcher.fetchPairData(tokenAInstance, tokenBInstance, this.provider);
         const route = new Route([pair], tokenAInstance);
-        
+
         const trade = new Trade(
           route,
           new TokenAmount(tokenAInstance, amountIn.toString()),
           TradeType.EXACT_INPUT
         );
 
-        const slippageFactor = 1 - (slippageTolerance / 100);
-        const amountOutMin = trade.minimumAmountOut(slippageFactor).raw.toString();
+        const slippage = new Percent(slippageTolerance, 100); 
+        const amountOutMin = trade.minimumAmountOut(slippage).raw.toString();
 
         const router = new ethers.Contract(
           this.BISWAP_ROUTER,
-  BiSwap['router-abi'],
+          ['function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) external'],
           this.wallet
         );
 
@@ -157,19 +266,19 @@ export class BSCDexService {
 
         return tx.hash;
       } else {
-     
-        const tokenAInstance = new PancakeToken(this.chainId, tokenAAddress, tokenA.decimals);
-        const tokenBInstance = new PancakeToken(this.chainId, tokenBAddress, tokenB.decimals);
 
-        const pair = await PancakePair.fetchData(tokenAInstance, tokenBInstance, this.provider);
+        const tokenAInstance = new Token(this.chainId, tokenAAddress, tokenA.decimals, tokenA.symbol, tokenA.name);
+        const tokenBInstance = new Token(this.chainId, tokenBAddress, tokenB.decimals, tokenB.symbol, tokenB.name);
+
+        const pair = await Fetcher.fetchPairData(tokenAInstance, tokenBInstance, this.provider);
         const expectedOutput = pair.token1Price.quote(amountIn);
-        
-        const slippageFactor = 1 - (slippageTolerance / 100);
-        const amountOutMin = expectedOutput.multiply(slippageFactor).quotient.toString();
+
+        const slippage = new Percent(slippageTolerance, 100); 
+        const amountOutMin = expectedOutput.multiply(slippage).quotient.toString();
 
         const router = new ethers.Contract(
           this.PANCAKE_ROUTER,
-          Pancake['router-abi'],
+          ['function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) external'],
           this.wallet
         );
 

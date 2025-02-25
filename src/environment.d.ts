@@ -14,6 +14,10 @@ declare module '*.ts' {
 interface ImportMetaEnv {
   readonly VITE_APP_TITLE: string
   readonly REACT_APP_RPC_URL: string
+  readonly VITE_SOLANA_RPC_URL: string;
+  readonly VITE_SOLANA_WS_URL: string;
+  readonly VITE_BSC_RPC_URL: string;
+  readonly VITE_ETH_RPC_URL: string;
 }
 
 interface ImportMeta {
