@@ -1,7 +1,8 @@
 import { BscDexService } from './bscDexService';
 import { EthDexService } from './ethDexService';
 import { SolanaDexService } from './solanaDexService';
-import { Connection, Keypair } from '@solana/web3.js';
+import { Connection } from '@solana/web3.js';
+import { WalletContextState } from '@solana/wallet-adapter-react';
 import { SolanaEndpoints } from '@/constant/solana';
 import { providers } from 'ethers';
 
@@ -31,166 +32,76 @@ interface Log {
 }
 
 export class ArbitrageService {
-  private bscService: BscDexService | null = null;
-  private ethService: EthDexService | null = null;
-  private solanaService: SolanaDexService | null = null;
-  private currentChain: ChainType | null = null;
-  private logs: Log[] = [];
-  private logCallback: ((log: Log) => void) | null = null;
+  private dexService: SolanaDexService;
+  private initialized = false;
 
-  setLogCallback(callback: (log: Log) => void) {
-    this.logCallback = callback;
-  }
-
-  addLog(log: Log) {
-    this.logs.push(log);
-    if (this.logCallback) {
-      this.logCallback(log);
-    }
-  }
-
-  async initialize(chain: ChainType, provider: any, wallet: any) {
-    this.currentChain = chain;
-    this.logs = [];
-
-    this.addLog({
-      type: 'info',
-      message: `Initializing ${chain} service`,
-      timestamp: Date.now()
+  constructor(connection: Connection, wallet: WalletContextState) {
+    console.log('[ArbitrageService] Constructing with:', {
+      endpoint: connection.rpcEndpoint,
+      commitment: connection.commitment,
+      wallet: {
+        connected: wallet.connected,
+        publicKey: wallet.publicKey?.toString(),
+        adapter: wallet.adapter?.name
+      }
     });
 
-    switch (chain) {
-      case 'BSC':
-        if (provider instanceof providers.Web3Provider) {
-          this.bscService = new BscDexService(provider, wallet, this.addLog.bind(this));
-          this.addLog({
-            type: 'success',
-            message: 'BSC service initialized',
-            timestamp: Date.now()
-          });
-        }
-        break;
-      case 'ETH':
-        if (provider instanceof providers.Web3Provider) {
-          this.ethService = new EthDexService(provider, this.addLog.bind(this));
-          this.addLog({
-            type: 'success',
-            message: 'ETH service initialized',
-            timestamp: Date.now()
-          });
-        }
-        break;
-      case 'SOLANA':
-        if (provider instanceof Connection && wallet instanceof Keypair) {
-          this.solanaService = new SolanaDexService(provider, wallet, this.addLog.bind(this));
-          this.addLog({
-            type: 'success',
-            message: 'Solana service initialized',
-            timestamp: Date.now()
-          });
-        }
-        break;
-      default:
-        throw new Error('Unsupported chain');
-    }
+    this.dexService = new SolanaDexService(connection, wallet);
   }
 
-  private getCurrentService() {
-    switch (this.currentChain) {
-      case 'BSC':
-        return this.bscService;
-      case 'ETH':
-        return this.ethService;
-      case 'SOLANA':
-        return this.solanaService;
-      default:
-        throw new Error('No chain selected');
-    }
+  get isInitialized(): boolean {
+    return this.initialized;
   }
 
-  async getTokenInfo(tokenAddress: string, symbol: string): Promise<TokenInfo> {
-    const service = this.getCurrentService();
-    if (!service) {
-      throw new Error('Service not initialized');
+  async initialize(): Promise<void> {
+    console.log('[ArbitrageService] Starting initialization');
+
+    try {
+      await this.dexService.initialize();
+      this.initialized = true;
+      console.log('[ArbitrageService] Initialization complete');
+    } catch (err) {
+      console.error('[ArbitrageService] Initialization failed:', err);
+      this.initialized = false;
+      throw err;
     }
-    return service.getTokenInfo(tokenAddress, symbol);
   }
 
   async findArbitrageOpportunities(
     tokenAAddress: string,
     tokenBAddress: string,
-    symbolA: string,
-    symbolB: string,
     minProfitPercent: number
   ): Promise<ArbitrageOpportunity[]> {
-    const service = this.getCurrentService();
-    if (!service) {
-      this.addLog({
-        type: 'error',
-        message: 'Service not initialized',
-        timestamp: Date.now()
-      });
+    if (!this.initialized) {
+      console.error('[ArbitrageService] Cannot find opportunities, service not initialized');
       throw new Error('Service not initialized');
     }
 
-    this.addLog({
-      type: 'info',
-      message: `Searching for opportunities: ${symbolA}/${symbolB}`,
-      timestamp: Date.now(),
-      metadata: {
-        pair: `${symbolA}/${symbolB}`,
-        chain: this.currentChain
-      }
-    });
-
     try {
-      const opportunities = await service.findArbitrageOpportunities(
+      console.log('[ArbitrageService] Finding arbitrage opportunities:', {
+        tokenA: tokenAAddress,
+        tokenB: tokenBAddress,
+        minProfit: minProfitPercent
+      });
+
+      const opportunities = await this.dexService.findArbitrageOpportunities(
         tokenAAddress,
         tokenBAddress,
-        symbolA,
-        symbolB,
         minProfitPercent
       );
 
-      if (opportunities.length > 0) {
-        opportunities.forEach(opp => {
-          this.addLog({
-            type: 'success',
-            message: `Found arbitrage opportunity for ${symbolA}/${symbolB}`,
-            timestamp: Date.now(),
-            metadata: {
-              pair: `${symbolA}/${symbolB}`,
-              profitPercent: opp.profitPercent.toFixed(2) + '%',
-              route: opp.route,
-              buyDex: opp.buyDex,
-              sellDex: opp.sellDex
-            }
-          });
-        });
-      } else {
-        this.addLog({
-          type: 'info',
-          message: `No profitable opportunities found for ${symbolA}/${symbolB}`,
-          timestamp: Date.now(),
-          metadata: {
-            pair: `${symbolA}/${symbolB}`,
-            minProfitPercent: minProfitPercent + '%'
-          }
-        });
-      }
+      console.log('[ArbitrageService] Found opportunities:', {
+        count: opportunities.length,
+        first: opportunities[0] ? {
+          profitPercent: opportunities[0].profitPercent,
+          route: opportunities[0].route
+        } : null
+      });
 
       return opportunities;
-    } catch (error: any) {
-      this.addLog({
-        type: 'error',
-        message: `Error finding opportunities: ${error.message}`,
-        timestamp: Date.now(),
-        metadata: {
-          pair: `${symbolA}/${symbolB}`,
-          error: error.message
-        }
-      });
-      throw error;
+    } catch (err) {
+      console.error('[ArbitrageService] Failed to find opportunities:', err);
+      throw err;
     }
   }
 
@@ -200,44 +111,33 @@ export class ArbitrageService {
     amount: string,
     symbolA: string,
     symbolB: string,
-    buyOnFirstDex: boolean,
-    slippageTolerance?: number
-  ): Promise<string> {
-    const service = this.getCurrentService();
-    if (!service) {
+    buyOnFirstDex: boolean
+  ): Promise<void> {
+    if (!this.initialized) {
       throw new Error('Service not initialized');
     }
-    return service.executeArbitrage(
-      tokenAAddress,
-      tokenBAddress,
-      amount,
-      symbolA,
-      symbolB,
-      buyOnFirstDex,
-      slippageTolerance
-    );
-  }
 
-  async getPrices(tokenA: TokenInfo, tokenB: TokenInfo) {
-    const service = this.getCurrentService();
-    if (!service) {
-      throw new Error('Service not initialized');
-    }
-    return service.getPrices(tokenA, tokenB);
-  }
+    try {
+      console.log('[ArbitrageService] Executing arbitrage:', {
+        tokenA: tokenAAddress,
+        tokenB: tokenBAddress,
+        amount,
+        symbolA,
+        symbolB,
+        buyOnFirstDex
+      });
 
-  getDefaultProvider(chain: ChainType): any {
-    switch (chain) {
-      case 'SOLANA':
-        return new Connection(SolanaEndpoints.mainnet.http, {
-          wsEndpoint: SolanaEndpoints.mainnet.ws,
-          commitment: 'confirmed'
-        });
-      case 'BSC':
-      case 'ETH':
-        return null; // These will be provided by the wallet
-      default:
-        throw new Error('Unsupported chain');
+      await this.dexService.executeArbitrage(
+        tokenAAddress,
+        tokenBAddress,
+        amount,
+        buyOnFirstDex
+      );
+
+      console.log('[ArbitrageService] Arbitrage executed successfully');
+    } catch (err) {
+      console.error('[ArbitrageService] Failed to execute arbitrage:', err);
+      throw err;
     }
   }
 }

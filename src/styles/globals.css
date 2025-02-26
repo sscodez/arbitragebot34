@@ -40,7 +40,7 @@
 
 /* Wallet Adapter UI Overrides */
 .wallet-adapter-button {
-  @apply bg-primary text-primary-foreground hover:bg-primary-hover !important;
+  @apply bg-primary text-primary-foreground hover:bg-primary-hover !text-xs !important;
 }
 
 .wallet-adapter-modal-wrapper {

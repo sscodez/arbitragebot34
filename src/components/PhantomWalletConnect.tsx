@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { SUPPORTED_CHAINS } from '@/constant/chains';
+import { useConnection } from '@solana/wallet-adapter-react';
 
 interface PhantomWalletConnectProps {
   onConnect: (address: string) => void;
@@ -16,34 +17,91 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
   selectedChain,
   onChainChange,
 }) => {
-  const { connected, publicKey, disconnect } = useWallet();
+  console.log('[PhantomWalletConnect] Rendering with props:', { selectedChain });
+
+  const { publicKey, connected, disconnect } = useWallet();
+  const { connection } = useConnection();
   const [evmAddress, setEvmAddress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleChainChange = (chain: string) => {
-    if (selectedChain === 'SOLANA' && connected) {
-      disconnect();
-    } else {
-      setEvmAddress(null);
-    }
-    onDisconnect();
-    onChainChange(chain);
-  };
+  useEffect(() => {
+    console.log('[PhantomWalletConnect] Wallet state changed:', {
+      connected,
+      publicKey: publicKey?.toString(),
+      connection: {
+        endpoint: connection?.rpcEndpoint,
+        commitment: connection?.commitment
+      }
+    });
 
-  const handleDisconnect = useCallback(async () => {
+    if (connected && publicKey) {
+      console.log('[PhantomWalletConnect] Calling onConnect with address:', publicKey.toString());
+      onConnect(publicKey.toString());
+    } else if (!connected) {
+      console.log('[PhantomWalletConnect] Calling onDisconnect');
+      onDisconnect();
+    }
+  }, [connected, publicKey, connection, onConnect, onDisconnect]);
+
+  const handleChainChange = (chain: string) => {
+    console.log('[PhantomWalletConnect] Chain change requested:', { 
+      from: selectedChain, 
+      to: chain,
+      connected 
+    });
+    
     try {
-      if (selectedChain === 'SOLANA') {
-        await disconnect();
+      console.log('Chain change initiated:', chain);
+      if (selectedChain === 'SOLANA' && connected) {
+        console.log('[PhantomWalletConnect] Disconnecting Solana wallet before chain change');
+        console.log('Disconnecting from Solana...');
+        disconnect();
       } else {
+        console.log('[PhantomWalletConnect] Clearing EVM address');
+        console.log('Clearing EVM address...');
         setEvmAddress(null);
       }
       onDisconnect();
-    } catch (err: any) {
-      setError(err.message);
+      onChainChange(chain);
+      console.log('[PhantomWalletConnect] Chain change completed');
+      console.log('Chain change completed:', chain);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Chain change failed';
+      console.error('[PhantomWalletConnect] Chain change error:', err);
+      console.error('Chain change error:', err);
+      setError(errorMsg);
+    }
+  };
+
+  const handleDisconnect = useCallback(async () => {
+    console.log('[PhantomWalletConnect] Disconnect requested for chain:', selectedChain);
+    
+    try {
+      console.log('Disconnect initiated for chain:', selectedChain);
+      if (selectedChain === 'SOLANA') {
+        console.log('[PhantomWalletConnect] Disconnecting Solana wallet');
+        console.log('Attempting to disconnect Solana wallet...');
+        await disconnect();
+        console.log('[PhantomWalletConnect] Disconnect completed');
+        console.log('Solana wallet disconnected successfully');
+      } else {
+        console.log('[PhantomWalletConnect] Clearing EVM address');
+        console.log('Clearing EVM address...');
+        setEvmAddress(null);
+      }
+      onDisconnect();
+      console.log('Disconnect completed');
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Disconnect failed';
+      console.error('[PhantomWalletConnect] Disconnect error:', err);
+      console.error('Disconnect error:', err);
+      setError(errorMsg);
     }
   }, [selectedChain, disconnect, onDisconnect]);
 
   const connectMetaMask = useCallback(async () => {
+    console.log('[PhantomWalletConnect] Connecting to MetaMask wallet');
+    
     try {
       if (!window.ethereum) {
         throw new Error('MetaMask is not installed. Please install MetaMask to connect.');
@@ -149,6 +207,7 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
       });
 
     } catch (err: any) {
+      console.error('[PhantomWalletConnect] Failed to connect wallet:', err);
       console.error('Failed to connect wallet:', err);
       setError(err.message || 'Failed to connect wallet. Please try again.');
       handleDisconnect();
@@ -156,22 +215,27 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
   }, [selectedChain, onConnect, handleDisconnect]);
 
   useEffect(() => {
-    if (selectedChain === 'SOLANA') {
-      if (connected && publicKey) {
-        onConnect(publicKey.toString());
-        setEvmAddress(null);
-      } else {
-        onDisconnect();
-      }
-    } else {
-      // For EVM chains, disconnect Solana connection if active
-      if (connected) {
-        disconnect();
+    console.log('[PhantomWalletConnect] Connection effect triggered:', {
+      connected,
+      publicKey: publicKey?.toString(),
+      selectedChain
+    });
+
+    if (connected && publicKey) {
+      try {
+        const address = publicKey.toString();
+        console.log('[PhantomWalletConnect] Connected to wallet:', address);
+        console.log('Connected to Solana wallet:', publicKey.toString());
+        onConnect(address);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Connection handling failed';
+        console.error('[PhantomWalletConnect] Connection effect error:', err);
+        console.error('Error in connection effect:', err);
+        setError(errorMsg);
       }
     }
-  }, [connected, publicKey, selectedChain, onConnect, onDisconnect, disconnect]);
+  }, [connected, publicKey, onConnect]);
 
-  // Cleanup function for MetaMask event listeners
   useEffect(() => {
     return () => {
       if (window.ethereum) {
@@ -224,19 +288,22 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
         </div>
 
         <div className="flex flex-col space-y-4 mt-2">
-          <div className="flex flex-col space-y-2">
-            <label className="text-sm font-medium text-gray-300">Select Wallet</label>
+          <div className="flex flex-col  space-y-2">
+            <label className="text-xs font-medium text-gray-300">Select Wallet</label>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {selectedChain === 'ETH' ? (
                 <>
-                  <button
+                  {/* <button
                     onClick={connectMetaMask}
                     className="flex items-center justify-center px-4 py-2.5 bg-secondary/50 hover:bg-secondary/70 text-white rounded-lg transition-colors space-x-2 border border-secondary-foreground/10"
                   >
                     <img src="/metamask-logo.svg" alt="MetaMask" className="w-5 h-5" />
                     <span>MetaMask</span>
-                  </button>
-                  <WalletMultiButton className="phantom-button !bg-secondary/50 hover:!bg-secondary/70 !border !border-secondary-foreground/10" />
+                  </button> */}
+
+                <div className="text-xs whitespace-nowrap">
+                  <WalletMultiButton className=" !bg-secondary/50 text-xs hover:!bg-secondary/70 !border !border-secondary-foreground/10" />
+           </div>
                 </>
               ) : selectedChain === 'BSC' ? (
                 <button
@@ -247,7 +314,9 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
                   <span>Connect MetaMask (BSC)</span>
                 </button>
               ) : (
-                <WalletMultiButton className="phantom-button !bg-secondary/50 hover:!bg-secondary/70 !border !border-secondary-foreground/10" />
+                <div className="text-xs whitespace-nowrap">
+                  <WalletMultiButton className="phantom-button !bg-secondary/50 text-xs hover:!bg-secondary/70 !border !border-secondary-foreground/10 whitespace-nowrap" />
+                </div>
               )}
             </div>
           </div>

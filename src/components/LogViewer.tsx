@@ -25,6 +25,18 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs }) => {
     }
   }, [logs, autoScroll]);
 
+  const formatLogContent = (log: Log): string => {
+    let content = log.message;
+    if (log.metadata) {
+      try {
+        content += ' ' + JSON.stringify(log.metadata, null, 2);
+      } catch (err) {
+        console.error('Failed to stringify log metadata:', err);
+      }
+    }
+    return content;
+  };
+
   const getTimeRangeFilter = () => {
     const now = Date.now();
     switch (timeRange) {
@@ -39,13 +51,28 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs }) => {
     }
   };
 
-  const filteredLogs = filterLogs(logs, {
-    type: filter === 'all' ? undefined : filter,
-    search: searchTerm,
-    ...getTimeRangeFilter()
-  });
+  const filteredLogs = logs.filter(log => {
+    // Time range filter
+    const { startTime } = getTimeRangeFilter();
+    if (startTime && log.timestamp < startTime) {
+      return false;
+    }
 
-  const logStats = groupLogsByType(logs);
+    // Type filter
+    if (filter !== 'all' && log.type !== filter) {
+      return false;
+    }
+
+    // Search filter
+    if (searchTerm) {
+      const content = formatLogContent(log).toLowerCase();
+      if (!content.includes(searchTerm.toLowerCase())) {
+        return false;
+      }
+    }
+
+    return true;
+  });
 
   return (
     <div className="space-y-4">
@@ -92,7 +119,18 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs }) => {
             <span>Auto-scroll</span>
           </label>
           <button
-            onClick={() => downloadLogs(logs)}
+            onClick={() => {
+              const content = logs.map(log => 
+                `[${new Date(log.timestamp).toISOString()}] ${log.type.toUpperCase()}: ${formatLogContent(log)}`
+              ).join('\n');
+              const blob = new Blob([content], { type: 'text/plain' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `bot-logs-${new Date().toISOString()}.txt`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
             className="px-3 py-1.5 bg-secondary/50 text-sm rounded-lg border border-border hover:bg-secondary/70"
           >
             Download Logs
@@ -100,102 +138,29 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs }) => {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-        <div className="bg-card p-4 rounded-lg border border-border">
-          <div className="text-2xl font-bold">{logs.length}</div>
-          <div className="text-sm text-gray-400">Total Logs</div>
-        </div>
-        <div className="bg-red-500/10 p-4 rounded-lg border border-red-500/20">
-          <div className="text-2xl font-bold text-red-400">{logStats.error?.length || 0}</div>
-          <div className="text-sm text-gray-400">Errors</div>
-        </div>
-        <div className="bg-yellow-500/10 p-4 rounded-lg border border-yellow-500/20">
-          <div className="text-2xl font-bold text-yellow-400">{logStats.warning?.length || 0}</div>
-          <div className="text-sm text-gray-400">Warnings</div>
-        </div>
-        <div className="bg-green-500/10 p-4 rounded-lg border border-green-500/20">
-          <div className="text-2xl font-bold text-green-400">{logStats.success?.length || 0}</div>
-          <div className="text-sm text-gray-400">Success</div>
-        </div>
-        <div className="bg-blue-500/10 p-4 rounded-lg border border-blue-500/20">
-          <div className="text-2xl font-bold text-blue-400">{logStats.info?.length || 0}</div>
-          <div className="text-sm text-gray-400">Info</div>
-        </div>
-      </div>
-
-      {/* Logs */}
+      {/* Log Display */}
       <div 
         ref={scrollRef}
-        className="space-y-2 max-h-[32rem] overflow-y-auto rounded-lg border border-border p-4 bg-card"
+        className="bg-card border border-border rounded-lg h-[400px] overflow-y-auto p-4 space-y-2 font-mono text-sm"
       >
-        {filteredLogs.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            No logs match your filters
-          </div>
-        ) : (
-          filteredLogs.map((log, index) => (
-            <div
-              key={index}
-              className={`border rounded-lg ${getLogBackground(log.type)}`}
-            >
-              <div className="py-2 px-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className={`font-medium ${getLogSeverityColor(log.type)}`}>
-                      {formatLogMessage(log)}
-                    </span>
-                    {log.level && (
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        log.level === 'high' ? 'bg-red-500/10 text-red-400' :
-                        log.level === 'medium' ? 'bg-yellow-500/10 text-yellow-400' :
-                        'bg-blue-500/10 text-blue-400'
-                      }`}>
-                        {log.level}
-                      </span>
-                    )}
-                    {log.txHash && (
-                      <button
-                        onClick={() => copyToClipboard(log.txHash!)}
-                        className="text-xs bg-secondary/50 px-2 py-0.5 rounded-full hover:bg-secondary/70"
-                        title="Copy transaction hash"
-                      >
-                        Tx: {log.txHash.slice(0, 6)}...{log.txHash.slice(-4)}
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${getLogBackground(log.type)}`}>
-                      {log.type}
-                    </span>
-                    <span className="text-xs text-gray-400 tabular-nums">
-                      {formatTimestamp(log.timestamp)}
-                    </span>
-                  </div>
-                </div>
-                {log.data && (
-                  <div className="mt-2 text-xs text-gray-400 bg-secondary/30 rounded p-2 overflow-x-auto">
-                    <pre className="whitespace-pre-wrap">
-                      {JSON.stringify(log.data, null, 2)}
-                    </pre>
-                  </div>
-                )}
-                {log.metadata && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {Object.entries(log.metadata).map(([key, value]) => (
-                      <span
-                        key={key}
-                        className="text-xs bg-secondary/30 px-2 py-0.5 rounded-full text-gray-400"
-                      >
-                        {key}: {value}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+        {filteredLogs.map((log) => (
+          <div
+            key={log.id}
+            className={`flex items-start space-x-2 p-2 rounded ${
+              log.type === 'error' ? 'bg-red-500/10 text-red-500' :
+              log.type === 'success' ? 'bg-green-500/10 text-green-500' :
+              log.type === 'warning' ? 'bg-yellow-500/10 text-yellow-500' :
+              'bg-blue-500/10 text-blue-500'
+            }`}
+          >
+            <div className="whitespace-nowrap text-xs opacity-50">
+              {new Date(log.timestamp).toLocaleTimeString()}
             </div>
-          ))
-        )}
+            <div className="flex-1 break-all">
+              <span className="opacity-50">[{log.source}]</span> {formatLogContent(log)}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

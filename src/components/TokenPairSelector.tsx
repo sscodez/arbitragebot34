@@ -37,11 +37,16 @@ const TokenPairSelector: React.FC<TokenPairSelectorProps> = ({
   }, [chainTokens, searchTo, fromTokenSymbol]);
 
   const handleFromTokenSelect = useCallback((token: any) => {
+    console.log('[TokenPairSelector] From token selected:', token);
     setFromTokenSymbol(token.symbol);
     setShowFromDropdown(false);
     const toToken = chainTokens.find(t => t.symbol === toTokenSymbol);
     
     if (toToken) {
+      console.log('[TokenPairSelector] Pair selected:', {
+        fromToken: token,
+        toToken
+      });
       onPairSelect({
         fromToken: token,
         toToken,
@@ -54,11 +59,16 @@ const TokenPairSelector: React.FC<TokenPairSelectorProps> = ({
   }, [chainTokens, toTokenSymbol, onPairSelect]);
 
   const handleToTokenSelect = useCallback((token: any) => {
+    console.log('[TokenPairSelector] To token selected:', token);
     setToTokenSymbol(token.symbol);
     setShowToDropdown(false);
     const fromToken = chainTokens.find(t => t.symbol === fromTokenSymbol);
     
     if (fromToken) {
+      console.log('[TokenPairSelector] Pair selected:', {
+        fromToken,
+        toToken: token
+      });
       onPairSelect({
         fromToken,
         toToken: token,
@@ -71,6 +81,7 @@ const TokenPairSelector: React.FC<TokenPairSelectorProps> = ({
   }, [chainTokens, fromTokenSymbol, onPairSelect]);
 
   const swapTokens = useCallback(() => {
+    console.log('[TokenPairSelector] Swapping tokens');
     if (fromTokenSymbol && toTokenSymbol) {
       const fromToken = chainTokens.find(t => t.symbol === toTokenSymbol);
       const toToken = chainTokens.find(t => t.symbol === fromTokenSymbol);
@@ -78,6 +89,10 @@ const TokenPairSelector: React.FC<TokenPairSelectorProps> = ({
       setToTokenSymbol(fromTokenSymbol);
       
       if (fromToken && toToken) {
+        console.log('[TokenPairSelector] Pair swapped:', {
+          fromToken,
+          toToken
+        });
         onPairSelect({
           fromToken,
           toToken,
