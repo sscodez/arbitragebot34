@@ -1,9 +1,9 @@
-import { Connection, PublicKey } from '@solana/web3.js';
+import * as web3 from '@solana/web3.js';
 import { WalletContextState } from '@solana/wallet-adapter-react';
 import { Market } from '@raydium-io/raydium-sdk';
-import { BN } from '@project-serum/anchor';
 import Decimal from 'decimal.js';
 import { fetchSplashPool, setWhirlpoolsConfig } from '@orca-so/whirlpools';
+
 export interface ArbitrageOpportunity {
   profitPercent: number;
   route: string;
@@ -14,13 +14,13 @@ export interface ArbitrageOpportunity {
 }
 
 export class SolanaDexService {
-  private connection: Connection;
+  private connection: web3.Connection;
   private wallet: WalletContextState;
   private lastRequestTime: number = 0;
   private readonly MIN_REQUEST_INTERVAL = 1000; // 1 second between requests
   private initialized = false;
 
-  constructor(connection: Connection, wallet: WalletContextState) {
+  constructor(connection: web3.Connection, wallet: WalletContextState) {
     this.connection = connection;
     this.wallet = wallet;
     // Initialize Whirlpools config
@@ -35,8 +35,8 @@ export class SolanaDexService {
     try {
       const market = await Market.load(
         this.connection,
-        new PublicKey(fromTokenAddress),
-        new PublicKey(toTokenAddress),
+        new web3.PublicKey(fromTokenAddress),
+        new web3.PublicKey(toTokenAddress),
         {},
         Market.getProgramId(3)
       );
@@ -60,8 +60,8 @@ export class SolanaDexService {
       // Fetch pool info using the new method
       const poolInfo = await fetchSplashPool(
         this.connection,
-        new PublicKey(fromTokenAddress),
-        new PublicKey(toTokenAddress)
+        new web3.PublicKey(fromTokenAddress),
+        new web3.PublicKey(toTokenAddress)
       );
 
       if (!poolInfo.initialized) {
@@ -74,7 +74,7 @@ export class SolanaDexService {
       }
 
       // Calculate the price from the sqrt price
-      const price =  poolInfo.sqrtPrice
+      const price = poolInfo.sqrtPrice;
 
       console.log('[SolanaDexService] Whirlpool price calculated:', {
         fromToken: fromTokenAddress,
@@ -218,7 +218,7 @@ export class SolanaDexService {
 
     try {
       console.log('[SolanaDexService] Getting token info:', { tokenAddress, symbol });
-      const tokenMint = new PublicKey(tokenAddress);
+      const tokenMint = new web3.PublicKey(tokenAddress);
       const tokenInfo = await this.connection.getParsedAccountInfo(tokenMint);
       
       if (!tokenInfo.value?.data || typeof tokenInfo.value.data !== 'object') {
