@@ -23,14 +23,15 @@ export class SolanaDexService extends BaseService {
 
   constructor(connection: Connection) {
     super();
-    console.log('[Bot] Initializing SolanaDexService');
+    console.log('[SolanaDex] Initializing service');
     this.connection = connection;
     this.raydiumService = new RaydiumService();
     this.raydiumService.setLogCallback(this.log.bind(this));
+    console.log('[SolanaDex] Service initialized successfully');
   }
 
   setSelectedPairPoolIds(poolIds: string[]) {
-    console.log('[SolanaDex] Setting selected pair pool IDs:', poolIds);
+    console.log('[SolanaDex] Setting pool IDs:', poolIds);
     if (!this.raydiumService) {
       console.error('[SolanaDex] Cannot set pool IDs: Raydium service not initialized');
       throw new Error('Raydium service not initialized');
@@ -134,35 +135,50 @@ export class SolanaDexService extends BaseService {
   }
 
   private transformRaydiumPool(pool: RaydiumPoolResponse, tokenA: TokenInfo, tokenB: TokenInfo): PoolInfo {
-    const isTokenAMintA = pool.mintA.address.toLowerCase() === tokenA.address.toLowerCase();
-    
-    return {
-      id: pool.id,
-      name: pool.name || `${pool.mintA.symbol}/${pool.mintB.symbol}`,
-      tokenA: isTokenAMintA ? {
-        address: pool.mintA.address,
-        symbol: pool.mintA.symbol,
-        decimals: pool.mintA.decimals
-      } : {
-        address: pool.mintB.address,
-        symbol: pool.mintB.symbol,
-        decimals: pool.mintB.decimals
-      },
-      tokenB: isTokenAMintA ? {
-        address: pool.mintB.address,
-        symbol: pool.mintB.symbol,
-        decimals: pool.mintB.decimals
-      } : {
-        address: pool.mintA.address,
-        symbol: pool.mintA.symbol,
-        decimals: pool.mintA.decimals
-      },
-      price: new Big(pool.price || '0'),
-      tvl: new Big(pool.tvl || '0'),
-      volume24h: new Big(pool.volume24h || '0'),
-      fee: new Big(pool.feeRate || 0),
-      dex: 'raydium'
-    };
+    console.log('[SolanaDex] Transforming Raydium pool:', {
+      poolId: pool.id,
+      name: pool.name,
+      tokenA: tokenA.symbol,
+      tokenB: tokenB.symbol,
+      price: pool.price,
+      tvl: pool.tvl
+    });
+
+    try {
+      // Determine if we need to flip the price based on token order
+      const isTokenAMintA = pool.mintA.address.toLowerCase() === tokenA.address.toLowerCase();
+      const price = isTokenAMintA ? pool.price : new Big(1).div(pool.price).toString();
+
+      const transformedPool: PoolInfo = {
+        id: pool.id,
+        name: pool.name,
+        price: new Big(price),
+        tvl: new Big(pool.tvl),
+        volume24h: new Big(pool.volume24h),
+        feeRate: pool.feeRate,
+        type: pool.type,
+        tokenAAmount: new Big(isTokenAMintA ? pool.tokenAAmount : pool.tokenBAmount),
+        tokenBAmount: new Big(isTokenAMintA ? pool.tokenBAmount : pool.tokenAAmount)
+      };
+
+      console.log('[SolanaDex] Transformed pool:', {
+        id: transformedPool.id,
+        name: transformedPool.name,
+        price: transformedPool.price.toString(),
+        tvl: transformedPool.tvl.toString(),
+        volume24h: transformedPool.volume24h.toString()
+      });
+
+      return transformedPool;
+    } catch (error) {
+      console.error('[SolanaDex] Error transforming pool:', {
+        error: error instanceof Error ? error.message : String(error),
+        pool,
+        tokenA: tokenA.symbol,
+        tokenB: tokenB.symbol
+      });
+      throw error;
+    }
   }
 
   async getPriceFromPool(poolId: string): Promise<Big> {
@@ -223,8 +239,8 @@ export class SolanaDexService extends BaseService {
 
       const opportunities: ArbitrageOpportunity[] = [];
       const validPools = pools.filter(pool => 
-        pool.tvl.gt(MINIMUM_LIQUIDITY_THRESHOLD) &&
-        pool.volume24h.gt(0)
+        new Big(pool.tvl).gt(MINIMUM_LIQUIDITY_THRESHOLD) &&
+        new Big(pool.volume24h).gt(0)
       );
 
       this.log('info', `Found ${validPools.length} valid pools with sufficient liquidity`, {
@@ -238,95 +254,73 @@ export class SolanaDexService extends BaseService {
 
       // Compare each pair of pools
       for (let i = 0; i < validPools.length; i++) {
-        const poolA = validPools[i];
-        
         for (let j = i + 1; j < validPools.length; j++) {
+          const poolA = validPools[i];
           const poolB = validPools[j];
 
-          // Calculate price difference
-          const priceA = poolA.price;
-          const priceB = poolB.price;
+          try {
+            // Calculate potential profit
+            const buyPrice = new Big(poolA.price);
+            const sellPrice = new Big(poolB.price);
 
-          this.log('info', `Comparing pools: ${poolA.name} vs ${poolB.name}`, {
-            poolA: {
-              name: poolA.name,
-              price: priceA.toString(),
-              tvl: poolA.tvl.toString()
-            },
-            poolB: {
-              name: poolB.name,
-              price: priceB.toString(),
-              tvl: poolB.tvl.toString()
+            // Skip if prices are equal
+            if (buyPrice.eq(sellPrice)) continue;
+
+            // Determine buy and sell pools based on price
+            const [buyPool, sellPool] = buyPrice.lt(sellPrice) 
+              ? [poolA, poolB] 
+              : [poolB, poolA];
+
+            const buyAmount = amount;
+            const sellAmount = buyAmount.mul(sellPrice).div(buyPrice);
+            const profit = sellAmount.sub(buyAmount);
+            const profitPercent = profit.div(buyAmount).mul(100);
+
+            // Only consider profitable opportunities
+            if (profitPercent.gt(0)) {
+              const confidence = this.calculateConfidence(buyPool, sellPool, profitPercent);
+
+              opportunities.push({
+                buyPool,
+                sellPool,
+                price: buyPrice,
+                profit,
+                profitPercent,
+                confidence
+              });
+
+              this.log('success', 'Found arbitrage opportunity', {
+                buyPool: {
+                  name: buyPool.name,
+                  price: buyPool.price.toString()
+                },
+                sellPool: {
+                  name: sellPool.name,
+                  price: sellPool.price.toString()
+                },
+                profitPercent: profitPercent.toFixed(2) + '%',
+                confidence: (confidence * 100).toFixed(1) + '%'
+              });
             }
-          });
-
-          // Skip if prices are too close
-          if (priceA.eq(priceB)) {
-            this.log('info', 'Prices are equal, skipping');
+          } catch (error) {
+            console.error('[SolanaDex] Error calculating arbitrage between pools:', {
+              error: error instanceof Error ? error.message : String(error),
+              poolA: poolA.id,
+              poolB: poolB.id
+            });
             continue;
-          }
-
-          // Determine buy and sell pools
-          let buyPool, sellPool;
-          if (priceA.lt(priceB)) {
-            buyPool = poolA;
-            sellPool = poolB;
-          } else {
-            buyPool = poolB;
-            sellPool = poolA;
-          }
-
-          // Calculate potential profit
-          const buyAmount = amount;
-          const sellAmount = buyAmount.mul(sellPool.price).div(buyPool.price);
-          const profit = sellAmount.sub(buyAmount);
-          const profitPercent = profit.div(buyAmount).mul(100);
-
-          this.log('info', `Calculated profit for ${buyPool.name} -> ${sellPool.name}`, {
-            buyPool: buyPool.name,
-            sellPool: sellPool.name,
-            buyPrice: buyPool.price.toString(),
-            sellPrice: sellPool.price.toString(),
-            profit: profit.toString(),
-            profitPercent: profitPercent.toString()
-          });
-
-          // Only consider opportunities with profit above threshold
-          if (profitPercent.gt(MINIMUM_PROFIT_THRESHOLD)) {
-            const confidence = this.calculateConfidence(buyPool, sellPool, profitPercent);
-
-            this.log('success', `Found profitable opportunity: ${buyPool.name} -> ${sellPool.name}`, {
-              buyPool: {
-                name: buyPool.name,
-                price: buyPool.price.toString(),
-                tvl: buyPool.tvl.toString()
-              },
-              sellPool: {
-                name: sellPool.name,
-                price: sellPool.price.toString(),
-                tvl: sellPool.tvl.toString()
-              },
-              profit: profit.toString(),
-              profitPercent: profitPercent.toString(),
-              confidence
-            });
-
-            opportunities.push({
-              buyPool,
-              sellPool,
-              price: sellPool.price.div(buyPool.price),
-              profit,
-              profitPercent,
-              confidence
-            });
           }
         }
       }
+
+      // Sort opportunities by profit percentage
+      opportunities.sort((a, b) => b.profitPercent.minus(a.profitPercent).toNumber());
 
       return opportunities;
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[SolanaDex] Error finding arbitrage opportunities:', errorMessage);
       this.log('error', `Error finding arbitrage opportunities: ${errorMessage}`);
       throw error;
     }
@@ -374,9 +368,10 @@ export class SolanaDexService extends BaseService {
   setLogCallback(callback: LogCallback) {
     super.setLogCallback(callback);
     this.raydiumService.setLogCallback(callback);
+    console.log('[SolanaDex] Log callback set');
   }
 
-  private log(type: 'info' | 'success' | 'error', message: string, metadata?: any) {
+  protected log(type: 'info' | 'success' | 'error', message: string, metadata?: any) {
     if (this.isShuttingDown) return;
     console.log(`[Bot] ${type.toUpperCase()}: ${message}`, metadata || '');
     this.logCallback?.(type, message, metadata);

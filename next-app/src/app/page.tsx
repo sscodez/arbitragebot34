@@ -59,14 +59,21 @@ export default function Home() {
 
   // Initialize bot with Solana connection
   useEffect(() => {
-    console.log('[App] Initializing bot...');
+    console.log('[App] Starting bot initialization...');
     try {
-      const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
-      const service = new SolanaDexService(connection);
-      initializeBot(service);
-      console.log('[App] Bot initialized successfully');
+      const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+      console.log('[App] Using RPC URL:', rpcUrl);
+      
+      const connection = new Connection(rpcUrl);
+      console.log('[App] Solana connection created');
+      
+      const dexService = new SolanaDexService(connection);
+      console.log('[App] SolanaDexService created');
+      
+      initializeBot(dexService);
+      console.log('[App] Bot initialization complete');
     } catch (error) {
-      console.error('[App] Failed to initialize bot:', error);
+      console.error('[App] Bot initialization failed:', error);
       addLog('error', 'Failed to initialize bot: ' + (error instanceof Error ? error.message : String(error)));
     }
   }, [initializeBot, addLog]);
@@ -100,40 +107,55 @@ export default function Home() {
 
   // Handle pair selection
   const handlePairSelect = useCallback((pair: SelectedPair) => {
-    console.log('[App] Pair selected:', pair);
+    console.log('[App] Selected pair:', {
+      fromToken: pair.fromToken.symbol,
+      toToken: pair.toToken.symbol,
+      poolIds: pair.allPoolIds
+    });
     setSelectedPair(pair);
     setBotSelectedPair(pair);
-    addLog('info', `Selected trading pair: ${pair.fromToken.symbol}/${pair.toToken.symbol}`, {
-      poolId: pair.poolId,
-      fromToken: pair.fromToken.symbol,
-      toToken: pair.toToken.symbol
-    });
-  }, [addLog, setBotSelectedPair]);
+    addLog('info', `Selected pair: ${pair.fromToken.symbol}/${pair.toToken.symbol}`);
+  }, [setBotSelectedPair, addLog]);
 
-  const handleStartBot = useCallback(() => {
-    if (!walletAddress) {
-      addLog('error', 'Please connect your wallet first');
-      return;
-    }
+  const handleStartBot = useCallback(async () => {
+    console.log('[App] Starting bot:', {
+      hasWallet: !!walletAddress,
+      selectedPair: selectedPair ? {
+        fromToken: selectedPair.fromToken.symbol,
+        toToken: selectedPair.toToken.symbol,
+        poolIds: selectedPair.allPoolIds
+      } : null,
+      isRunning
+    });
+
     if (!selectedPair) {
+      console.error('[App] Cannot start bot: no pair selected');
       addLog('error', 'Please select a token pair first');
       return;
     }
-    try {
-      startBot();
-      addLog('success', 'Bot started successfully');
-    } catch (err) {
-      addLog('error', 'Failed to start bot: ' + (err instanceof Error ? err.message : String(err)));
+
+    if (!walletAddress) {
+      console.error('[App] Cannot start bot: no wallet connected');
+      addLog('error', 'Please connect your wallet first');
+      return;
     }
-  }, [walletAddress, selectedPair, startBot, addLog]);
+
+    try {
+      console.log('[App] Calling startBot...');
+      await startBot();
+      console.log('[App] Bot started successfully');
+      addLog('success', 'Bot started successfully');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[App] Failed to start bot:', error);
+      addLog('error', `Failed to start bot: ${errorMessage}`);
+    }
+  }, [walletAddress, selectedPair, startBot, addLog, isRunning]);
 
   const handleStopBot = useCallback(() => {
-    try {
-      stopBot();
-      addLog('info', 'Bot stopped successfully');
-    } catch (err) {
-      addLog('error', 'Failed to stop bot: ' + (err instanceof Error ? err.message : String(err)));
-    }
+    console.log('[App] Stopping bot');
+    stopBot();
+    addLog('info', 'Bot stopped');
   }, [stopBot, addLog]);
 
   const handleToggleExecution = useCallback(() => {

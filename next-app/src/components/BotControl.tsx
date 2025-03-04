@@ -11,6 +11,49 @@ const BotControl: React.FC<BotControlProps> = ({
   const isRunning = status.isRunning;
   const walletConnected = !!status.address;
 
+  const handleStartClick = async () => {
+    console.log('[BotControl] Start button clicked:', {
+      isRunning,
+      walletConnected
+    });
+    
+    if (!walletConnected) {
+      console.log('[BotControl] Cannot start: wallet not connected');
+      return;
+    }
+    
+    if (isRunning) {
+      console.log('[BotControl] Cannot start: already running');
+      return;
+    }
+    
+    try {
+      console.log('[BotControl] Starting bot...');
+      await onStart();
+      console.log('[BotControl] Bot started successfully');
+    } catch (error) {
+      console.error('[BotControl] Failed to start bot:', error);
+    }
+  };
+
+  const handleStopClick = () => {
+    console.log('[BotControl] Stop button clicked:', {
+      isRunning
+    });
+    
+    if (!isRunning) {
+      console.log('[BotControl] Cannot stop: not running');
+      return;
+    }
+    
+    try {
+      onStop();
+      console.log('[BotControl] Bot stopped successfully');
+    } catch (error) {
+      console.error('[BotControl] Failed to stop bot:', error);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -30,7 +73,7 @@ const BotControl: React.FC<BotControlProps> = ({
       <div className="flex flex-col space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <button
-            onClick={onStart}
+            onClick={handleStartClick}
             disabled={!walletConnected || isRunning}
             className={`px-4 py-2 rounded-lg font-medium ${
               !walletConnected || isRunning
@@ -41,7 +84,7 @@ const BotControl: React.FC<BotControlProps> = ({
             Start Bot
           </button>
           <button
-            onClick={onStop}
+            onClick={handleStopClick}
             disabled={!isRunning}
             className={`px-4 py-2 rounded-lg font-medium ${
               !isRunning

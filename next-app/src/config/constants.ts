@@ -28,4 +28,4 @@ export const BATCH_DELAY = 3000; // 3 seconds between batches
 export const CACHE_TTL = 60000; // 1 minute cache
 
 // API endpoints
-export const RAYDIUM_API_ENDPOINT = 'https://api-v3.raydium.io/pools/info';
+export const RAYDIUM_API_ENDPOINT = 'https://api-v3.raydium.io';

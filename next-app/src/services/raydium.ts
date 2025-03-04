@@ -16,6 +16,11 @@ export class RaydiumService extends BaseService {
   private readonly BATCH_DELAY = 3000; // 3 seconds between batches
   private activeRequests: AbortController[] = [];
 
+  constructor() {
+    super();
+    console.log('[Raydium] Initializing service');
+  }
+
   async shutdown() {
     super.shutdown();
     this.activeRequests.forEach(controller => controller.abort());
@@ -23,14 +28,14 @@ export class RaydiumService extends BaseService {
   }
 
   setSelectedPairPoolIds(poolIds: string[]) {
-    console.log('[Raydium] Setting selected pair pool IDs:', poolIds);
+    console.log('[Raydium] Setting pool IDs:', poolIds);
     if (!poolIds || poolIds.length === 0) {
       console.error('[Raydium] Cannot set empty pool IDs');
       throw new Error('Cannot set empty pool IDs');
     }
     this.selectedPairPoolIds = poolIds;
-    console.log('[Raydium] Pool IDs set successfully. Total:', poolIds.length);
-    
+    console.log('[Raydium] Pool IDs set successfully');
+
     // Clear the pool cache to force a refresh
     console.log('[Raydium] Clearing pool cache');
     this.poolCache.clear();
@@ -188,10 +193,9 @@ export class RaydiumService extends BaseService {
   }
 
   private async fetchPoolWithRetry(poolId: string, retries = 3): Promise<RaydiumPoolResponse | null> {
-    console.log('[Raydium] Starting fetch pool with retry:')
     try {
       console.log('[Raydium] Fetching pool data for:', poolId);
-      const apiUrl = `${RAYDIUM_API_ENDPOINT}/ids?ids=${poolId}`;
+      const apiUrl = `${RAYDIUM_API_ENDPOINT}/pools/info/ids?ids=${poolId}`;
       console.log('[Raydium] API URL:', apiUrl);
 
       const response = await fetch(apiUrl);
@@ -203,26 +207,62 @@ export class RaydiumService extends BaseService {
           status: response.status,
           statusText: response.statusText
         });
-        throw new Error(`Failed to fetch pool data: ${response.statusText}`);
+        return null;
       }
 
       const data = await response.json();
-      console.log('[Raydium] Pool data received:', {
-        poolId,
-        success: !!data,
-        hasData: !!data[poolId]
-      });
+      console.log('[Raydium] Raw response:', data);
 
-      if (!data || !data[poolId]) {
-        console.error('[Raydium] Invalid pool data:', {
+      // Handle v3 API response format
+      if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+        const poolData = data.data[0];
+        console.log('[Raydium] Pool data found:', {
           poolId,
-          data
+          type: poolData.type,
+          mintA: poolData.mintA?.symbol,
+          mintB: poolData.mintB?.symbol,
+          price: poolData.price
         });
-        throw new Error('Invalid pool data received');
+
+        const transformedPool = {
+          id: poolId,
+          name: `${poolData.mintA.symbol}/${poolData.mintB.symbol}`,
+          mintA: {
+            address: poolData.mintA.address,
+            symbol: poolData.mintA.symbol,
+            decimals: poolData.mintA.decimals
+          },
+          mintB: {
+            address: poolData.mintB.address,
+            symbol: poolData.mintB.symbol,
+            decimals: poolData.mintB.decimals
+          },
+          tokenAAmount: poolData.mintAmountA.toString(),
+          tokenBAmount: poolData.mintAmountB.toString(),
+          tvl: poolData.tvl.toString(),
+          volume24h: poolData.day?.volume?.toString() || '0',
+          price: poolData.price.toString(),
+          feeRate: poolData.feeRate,
+          type: poolData.type.toLowerCase()
+        };
+
+        console.log('[Raydium] Transformed pool data:', {
+          id: transformedPool.id,
+          name: transformedPool.name,
+          price: transformedPool.price,
+          tvl: transformedPool.tvl
+        });
+
+        return transformedPool;
       }
 
-      const poolData = data[poolId];
-      return poolData;
+      console.log('[Raydium] No pool data found:', {
+        poolId,
+        success: data.success,
+        hasData: Array.isArray(data.data),
+        dataLength: Array.isArray(data.data) ? data.data.length : 0
+      });
+      return null;
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -234,7 +274,7 @@ export class RaydiumService extends BaseService {
 
       if (retries > 0) {
         console.log('[Raydium] Retrying pool fetch...');
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+        await new Promise(resolve => setTimeout(resolve, 1000));
         return this.fetchPoolWithRetry(poolId, retries - 1);
       }
 
@@ -385,6 +425,12 @@ export class RaydiumService extends BaseService {
       this.log('error', `Error getting pools: ${errorMessage}`);
       throw error;
     }
+  }
+
+  protected log(type: 'info' | 'success' | 'error', message: string, metadata?: any) {
+    if (this.isShuttingDown) return;
+    console.log(`[Raydium] ${type.toUpperCase()}: ${message}`, metadata || '');
+    this.logCallback?.(type, message, metadata);
   }
 
   private isValidPoolData(data: any): data is ApiPoolResponse['data'][0] {

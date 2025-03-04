@@ -9,16 +9,24 @@ export interface RaydiumMint {
 
 export interface RaydiumPoolResponse {
   id: string;
-  name?: string;
-  mintA: RaydiumMint;
-  mintB: RaydiumMint;
+  name: string;
+  mintA: {
+    address: string;
+    symbol: string;
+    decimals: number;
+  };
+  mintB: {
+    address: string;
+    symbol: string;
+    decimals: number;
+  };
   tokenAAmount: string;
   tokenBAmount: string;
-  price: string;
   tvl: string;
   volume24h: string;
+  price: string;
   feeRate: number;
-  type?: string;
+  type: string;
 }
 
 export interface ApiPoolResponse {
@@ -41,11 +49,11 @@ export interface ApiPoolResponse {
 export interface PoolInfo {
   id: string;
   name: string;
-  tokenA: TokenInfo;
-  tokenB: TokenInfo;
-  price: Big;
-  tvl: Big;
-  volume24h: Big;
-  fee: Big;
-  dex: string;
+  price: string;
+  tvl: string;
+  volume24h: string;
+  feeRate: number;
+  type: string;
+  tokenAAmount: string;
+  tokenBAmount: string;
 }
