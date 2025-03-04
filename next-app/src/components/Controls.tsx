@@ -14,9 +14,9 @@ import {
   Paper,
 } from '@mui/material';
 import { PlayArrow, Stop, Settings } from '@mui/icons-material';
-import { CHAINS, DEXES } from '../config/chains';
-import { useArbitrage } from '../hooks/useArbitrage';
-import { useWallet } from '../hooks/useWallet';
+import { CHAINS, DEXES } from '@/config/chains';
+import { useArbitrage } from '@/hooks/useArbitrage';
+import { useWallet } from '@/hooks/useWallet';
 
 const Controls = ({ 
   isConnected, 

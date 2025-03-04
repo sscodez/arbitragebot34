@@ -1,21 +1,80 @@
+@import '../styles/theme.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-[#00E2A4] text-black rounded-lg hover:opacity-90 transition-opacity;
+  }
+  
+  .btn-secondary {
+    @apply px-4 py-2 bg-[#1a1a1a] text-white rounded-lg hover:opacity-90 transition-opacity;
+  }
+
+  .hover-card {
+    @apply transition-all duration-200 hover:shadow-[0_0_15px_rgba(0,226,164,0.3)] hover:border-[#00E2A4]/20;
+  }
+
+  .nav-link {
+    @apply text-[#a1a1aa] hover:text-white transition-colors;
+  }
+
+  .card-stats {
+    @apply p-6 rounded-lg bg-[#0D0D0D] border border-[#1a1a1a] hover:border-[#00E2A4]/20 transition-colors;
+  }
+
+  .stat-value {
+    @apply text-3xl font-bold text-white;
+  }
+
+  .stat-label {
+    @apply text-sm text-[#a1a1aa];
+  }
+
+  .stat-change-positive {
+    @apply text-[#00E2A4] text-sm;
+  }
+
+  .stat-change-negative {
+    @apply text-[#ff4444] text-sm;
+  }
+}
+
+.switch {
+  @apply relative inline-flex h-6 w-11 items-center rounded-full bg-[#1a1a1a] transition-colors focus:outline-none focus:ring-2 focus:ring-[#00E2A4] focus:ring-offset-2;
+}
+
+.switch[data-state="checked"] {
+  @apply bg-[#00E2A4];
+}
+
+.switch[data-state="unchecked"] {
+  @apply bg-[#1a1a1a];
+}
+
+.switch-thumb {
+  @apply pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform;
+}
+
+.switch[data-state="checked"] .switch-thumb {
+  @apply translate-x-5;
+}
+
+.switch[data-state="unchecked"] .switch-thumb {
+  @apply translate-x-0;
+}
+
+.input {
+  @apply flex h-10 w-full rounded-md border border-[#1a1a1a] bg-[#1a1a1a] px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-[#a1a1aa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00E2A4] disabled:cursor-not-allowed disabled:opacity-50;
 }

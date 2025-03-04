@@ -1,0 +1,37 @@
+{
+    "name": "raydium sol",
+    "pairs": [
+        {
+            "pair": "USDC-WSOL",
+            "tokenA": "So11111111111111111111111111111111111111112",
+            "tokenB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "pooldids": [
+                "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj",
+                "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+                "CYbD9RaToYMtWKA7QZyoLahnHdWq553Vm62Lh6qWtuxq"
+            ]
+        },
+        {
+            "pair": "RAY-WSOL",
+            "tokenA": "So11111111111111111111111111111111111111112",
+            "tokenB": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+            "pooldids": [
+                "Enfoa5Xdtirwa46xxa5LUVcQWe7EUb2pGzTjfvU7EBS1",
+                "2AXXcN6oN9bBT5owwmTH53C7QHUXvhLeu718Kqt8rvY2",
+                "DfptScHTyb9YwDV27HsDaBAwPr38ij9Qu3HgEwD8hs4h",
+                "4Hcd6YzrQatgXpEioDeh3EVA83437uK5WVXFd6tE11f8"
+            ]
+        },
+        {
+            "pair": "WSOL-USDT",
+            "tokenA": "So11111111111111111111111111111111111111112",
+            "tokenB": " Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+            "pooldids": [
+                "3nMFwZXwY1s1M5s8vYAHqd4wGs4iSxXE4LRoUMMYqEgF",
+                "ExcBWu8fGPdJiaF1b1z3iEef38sjQJks8xvj6M85pPY6",
+                "6kT4MhDqKrkWikaGpFCvYsk45BUKXEe2gTpNGAR1YcjS",
+                "5BD8e2Fu8ncd57PTtNWCYJLnCVYdW16R4Vg1KnUpyjo5"
+            ]
+        }
+    ]
+}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { SUPPORTED_CHAINS } from '../../constant/chains';
+import { SUPPORTED_CHAINS } from '@/constant/chains';
 
 interface ChainSelectorProps {
   selectedChain: string;

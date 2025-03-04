@@ -1,86 +1,101 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { TradingConfigProps } from '@/types/app';
 
-const TradingConfig: React.FC<TradingConfigProps> = ({ config, onConfigChange }) => {
-  const [localConfig, setLocalConfig] = useState(config);
-
+const TradingConfig: React.FC<TradingConfigProps> = ({
+  config,
+  onConfigChange,
+}) => {
   const handleChange = (field: keyof typeof config, value: string | number) => {
-    const newConfig = {
-      ...localConfig,
+    onConfigChange({
+      ...config,
       [field]: typeof config[field] === 'number' ? Number(value) : value,
-    };
-    setLocalConfig(newConfig);
-    onConfigChange(newConfig);
+    });
   };
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-3">
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Max Daily Trades
-          </label>
-          <input
-            type="number"
-            value={localConfig.maxDailyTrades}
-            onChange={(e) => handleChange('maxDailyTrades', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50"
-            min="1"
-            max="1000"
-          />
+    <div className="space-y-6">
+      {/* Risk Tolerance */}
+      <div className="space-y-2">
+        <div className="flex justify-between items-center">
+          <label className="text-sm text-muted-foreground">Risk Tolerance</label>
+          <span className="text-sm text-muted-foreground">Balanced</span>
         </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Min Profit Percent
-          </label>
-          <div className="mt-1 relative rounded-md shadow-sm">
-            <input
-              type="number"
-              value={localConfig.minProfitPercent}
-              onChange={(e) => handleChange('minProfitPercent', e.target.value)}
-              className="block w-full rounded-md border-gray-300 pl-3 pr-12 focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50"
-              step="0.1"
-              min="0.1"
-            />
-            <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-              <span className="text-gray-500 sm:text-sm">%</span>
-            </div>
-          </div>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value="50"
+          className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+        />
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>Conservative</span>
+          <span>Aggressive</span>
         </div>
+      </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Max Trade Amount
-          </label>
-          <input
-            type="text"
-            value={localConfig.maxTradeAmount}
-            onChange={(e) => handleChange('maxTradeAmount', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50"
-          />
+      {/* Stop Loss */}
+      <div className="space-y-2">
+        <div className="flex justify-between items-center">
+          <label className="text-sm text-muted-foreground">Stop Loss</label>
+          <span className="text-sm text-muted-foreground">Current: 15%</span>
         </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Slippage Tolerance
-          </label>
-          <div className="mt-1 relative rounded-md shadow-sm">
-            <input
-              type="number"
-              value={localConfig.slippageTolerance}
-              onChange={(e) => handleChange('slippageTolerance', e.target.value)}
-              className="block w-full rounded-md border-gray-300 pl-3 pr-12 focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50"
-              step="0.1"
-              min="0.1"
-              max="5"
-            />
-            <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-              <span className="text-gray-500 sm:text-sm">%</span>
-            </div>
+        <input
+          type="range"
+          min="5"
+          max="25"
+          value="15"
+          className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+        />
+        <div className="flex items-center mt-1">
+          <div className="flex-1">
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                className="form-checkbox h-4 w-4 text-primary rounded border-border bg-secondary"
+              />
+              <span className="ml-2 text-sm text-muted-foreground">Auto-adjust</span>
+            </label>
           </div>
         </div>
       </div>
+
+      {/* Position Size Limit */}
+      <div className="space-y-2">
+        <div className="flex justify-between items-center">
+          <label className="text-sm text-muted-foreground">Position Size Limit</label>
+          <span className="text-sm text-muted-foreground">Max: 30% of portfolio</span>
+        </div>
+        <input
+          type="range"
+          min="10"
+          max="50"
+          value="30"
+          className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+        />
+      </div>
+
+      {/* Leverage Limit */}
+      <div className="space-y-2">
+        <div className="flex justify-between items-center">
+          <label className="text-sm text-muted-foreground">Leverage Limit</label>
+          <span className="text-sm text-muted-foreground">Current: 2x</span>
+        </div>
+        <input
+          type="range"
+          min="1"
+          max="5"
+          value="2"
+          step="0.5"
+          className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+        />
+      </div>
+
+      {/* Set Alerts Button */}
+      <button
+        className="w-full px-4 py-2 bg-secondary text-foreground rounded-lg hover:bg-secondary/80 transition-colors"
+      >
+        Set Alerts
+      </button>
     </div>
   );
 };

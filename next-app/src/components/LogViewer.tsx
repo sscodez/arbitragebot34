@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LogViewerProps, Log } from '@/types/app';
+import { LogViewerProps, Log, BotStatus } from '@/types/app';
 import {
   formatLogMessage,
   getLogLevel,
@@ -12,7 +12,13 @@ import {
   downloadLogs
 } from '@/utils/logUtils';
 
-const LogViewer: React.FC<LogViewerProps> = ({ logs }) => {
+interface LogViewerProps {
+  logs: Log[];
+  botStatus: BotStatus;
+  walletConnected: boolean;
+}
+
+const LogViewer: React.FC<LogViewerProps> = ({ logs, botStatus, walletConnected }) => {
   const [filter, setFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -24,6 +30,19 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs }) => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [logs, autoScroll]);
+
+  const getLogTypeStyle = (type: string) => {
+    switch (type) {
+      case 'info':
+        return 'text-primary';
+      case 'success':
+        return 'text-green-400';
+      case 'error':
+        return 'text-destructive';
+      default:
+        return 'text-muted-foreground';
+    }
+  };
 
   const formatLogContent = (log: Log): string => {
     let content = log.message;
@@ -76,6 +95,29 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs }) => {
 
   return (
     <div className="space-y-4">
+      {/* Status Bar */}
+      <div className="flex items-center space-x-4 mb-4 p-3 bg-secondary rounded-lg">
+        <div className="flex items-center space-x-2">
+          <span className={`w-2 h-2 rounded-full ${walletConnected ? 'bg-primary' : 'bg-destructive'}`}></span>
+          <span className="text-sm text-muted-foreground">
+            Wallet: {walletConnected ? 'Connected' : 'Disconnected'}
+          </span>
+        </div>
+        <div className="flex items-center space-x-2">
+          <span className={`w-2 h-2 rounded-full ${botStatus.isRunning ? 'bg-primary' : 'bg-muted'}`}></span>
+          <span className="text-sm text-muted-foreground">
+            Bot: {botStatus.isRunning ? 'Running' : 'Stopped'}
+          </span>
+        </div>
+        {botStatus.isRunning && (
+          <div className="flex items-center space-x-2">
+            <span className="text-sm text-muted-foreground">
+              Balance: {botStatus.balance} SOL
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* Controls */}
       <div className="flex flex-col space-y-4 sm:flex-row sm:space-y-0 sm:space-x-4 items-start sm:items-center justify-between bg-card p-4 rounded-lg border border-border">
         <div className="flex space-x-2 items-center">
@@ -138,29 +180,37 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs }) => {
         </div>
       </div>
 
-      {/* Log Display */}
+      {/* Log Container */}
       <div 
         ref={scrollRef}
-        className="bg-card border border-border rounded-lg h-[400px] overflow-y-auto p-4 space-y-2 font-mono text-sm"
+        className="h-[400px] overflow-y-auto rounded-lg border border-border bg-card p-4"
       >
-        {filteredLogs.map((log) => (
-          <div
-            key={log.id}
-            className={`flex items-start space-x-2 p-2 rounded ${
-              log.type === 'error' ? 'bg-red-500/10 text-red-500' :
-              log.type === 'success' ? 'bg-green-500/10 text-green-500' :
-              log.type === 'warning' ? 'bg-yellow-500/10 text-yellow-500' :
-              'bg-blue-500/10 text-blue-500'
-            }`}
-          >
-            <div className="whitespace-nowrap text-xs opacity-50">
-              {new Date(log.timestamp).toLocaleTimeString()}
+        <div className="space-y-2">
+          {filteredLogs.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <span className="text-muted-foreground">No logs available</span>
             </div>
-            <div className="flex-1 break-all">
-              <span className="opacity-50">[{log.source}]</span> {formatLogContent(log)}
-            </div>
-          </div>
-        ))}
+          ) : (
+            filteredLogs.map((log) => (
+              <div
+                key={log.id}
+                className="flex items-start space-x-2 p-2 rounded-md hover:bg-secondary/50 transition-colors"
+              >
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {new Date(log.timestamp).toLocaleTimeString()}
+                </span>
+                <span className={`text-sm ${getLogTypeStyle(log.type)}`}>
+                  {log.message}
+                </span>
+                {log.metadata && (
+                  <pre className="text-xs text-muted-foreground mt-1 bg-secondary/50 p-2 rounded overflow-x-auto">
+                    {JSON.stringify(log.metadata, null, 2)}
+                  </pre>
+                )}
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

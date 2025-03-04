@@ -1,106 +1,224 @@
-import { useState, useCallback, useEffect } from 'react';
-import { useArbitrage } from './useArbitrage';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { useConnection } from '@solana/wallet-adapter-react';
-
-interface SelectedPair {
-  fromToken: {
-    address: string;
-    symbol: string;
-    decimals: number;
-  };
-  toToken: {
-    address: string;
-    symbol: string;
-    decimals: number;
-  };
-}
-
-interface Log {
-  id: string;
-  type: 'info' | 'success' | 'error';
-  message: string;
-  timestamp: number;
-  metadata?: any;
-  source: string;
-}
-
-const SEARCH_INTERVAL_MS = 30000;
+import { useCallback, useRef, useState } from 'react';
+import { TokenInfo } from '@/types/token';
+import { SolanaDexService } from '@/services/solanaDexService';
+import { SelectedPair } from '@/types/app';
+import { BOT_CHECK_INTERVAL } from '@/config/constants';
+import Big from 'big.js';
 
 export const useBot = () => {
-  console.log('[useBot] Initializing hook');
-  
-  const [selectedPair, setSelectedPair] = useState<SelectedPair | null>(null);
-  const [minProfitPercent, setMinProfitPercent] = useState(1);
-  const [lastOpportunity, setLastOpportunity] = useState(null);
-  const [error, setError] = useState<string | null>(null);
-  const [searchIntervalId, setSearchIntervalId] = useState<NodeJS.Timeout | null>(null);
   const [isRunning, setIsRunning] = useState(false);
-  const [logs, setLogs] = useState<Log[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [logs, setLogs] = useState<any[]>([]);
+  
+  const logCounterRef = useRef(0);
+  const serviceRef = useRef<SolanaDexService | null>(null);
+  const selectedPairRef = useRef<SelectedPair | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const addLog = useCallback((type: 'info' | 'success' | 'error', message: string, metadata?: any) => {
-    const log = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${Math.random().toString(36).substr(2, 9)}`,
-      type,
-      message,
-      timestamp: Date.now(),
-      metadata,
-      source: 'bot'
-    };
-    console.log(`[useBot] ${type}:`, message, metadata || '');
-    setLogs(prevLogs => [...prevLogs, log]);
+    setLogs(prevLogs => {
+      // Generate a unique ID using UUID-like format
+      const uniqueId = `${Date.now()}-${logCounterRef.current++}-${Math.random().toString(36).substring(2, 15)}-${Math.random().toString(36).substring(2, 15)}`;
+      
+      const newLog = {
+        id: uniqueId,
+        type,
+        message,
+        timestamp: Date.now(),
+        metadata,
+        source: 'bot'
+      };
+
+      // Log to console for debugging
+      console.log(`[Bot] ${type.toUpperCase()}: ${message}`, metadata || '');
+
+      // Keep only the last 1000 logs to prevent memory issues
+      const updatedLogs = [...prevLogs, newLog];
+      if (updatedLogs.length > 1000) {
+        return updatedLogs.slice(-1000);
+      }
+      return updatedLogs;
+    });
   }, []);
 
-  const { 
-    findOpportunities, 
-    executeArbitrage, 
-    opportunities, 
-    isSearching,
-    isInitialized,
-    error: arbitrageError 
-  } = useArbitrage({
-    onLog: (type, message, metadata) => {
-      addLog(type, message, metadata);
+  const initializeBot = useCallback((service: SolanaDexService) => {
+    console.log('[Bot] Initializing bot with service');
+    serviceRef.current = service;
+    service.setLogCallback(addLog);
+    addLog('info', 'Bot initialized with Solana DEX service');
+  }, [addLog]);
+
+  const setSelectedPair = useCallback((pair: SelectedPair | null) => {
+    console.log('[Bot] Setting selected pair:', pair ? {
+      fromToken: pair.fromToken.symbol,
+      toToken: pair.toToken.symbol,
+      poolIds: pair.allPoolIds
+    } : 'null');
+    
+    selectedPairRef.current = pair;
+    
+    if (pair) {
+      addLog('info', `Selected pair: ${pair.fromToken.symbol}/${pair.toToken.symbol}`, {
+        fromToken: {
+          symbol: pair.fromToken.symbol,
+          address: pair.fromToken.address
+        },
+        toToken: {
+          symbol: pair.toToken.symbol,
+          address: pair.toToken.address
+        },
+        poolIds: pair.allPoolIds
+      });
     }
-  });
+  }, [addLog]);
 
-  const { connection } = useConnection();
-  const { connected: isConnected, publicKey, wallet } = useWallet();
-
-  useEffect(() => {
-    console.log('[useBot] State changed:', {
-      isConnected,
-      publicKey: publicKey?.toString(),
-      isInitialized,
+  const checkArbitrageOpportunities = useCallback(async () => {
+    console.log('[Bot] checkArbitrageOpportunities called:', {
+      hasSelectedPair: !!selectedPairRef.current,
+      hasService: !!serviceRef.current,
       isRunning,
-      selectedPair: selectedPair ? `${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}` : null,
-      error,
-      arbitrageError
+      selectedPair: selectedPairRef.current ? {
+        fromToken: selectedPairRef.current.fromToken.symbol,
+        toToken: selectedPairRef.current.toToken.symbol,
+        poolIds: selectedPairRef.current.allPoolIds
+      } : null,
+      service: serviceRef.current ? 'initialized' : 'not initialized'
     });
-  }, [isConnected, publicKey, isInitialized, isRunning, selectedPair, error, arbitrageError]);
 
-  const stopBot = useCallback(() => {
-    console.log('[useBot] Stopping bot');
-    
-    if (searchIntervalId) {
-      clearInterval(searchIntervalId);
-      setSearchIntervalId(null);
-    }
-    
-    setIsRunning(false);
-    setError(null);
-  }, [searchIntervalId]);
-
-  const searchForOpportunities = useCallback(async () => {
-    if (!isRunning) {
-      console.log('[useBot] Bot is stopped, skipping search');
+    if (!selectedPairRef.current || !serviceRef.current || !isRunning) {
+      console.log('[Bot] Skipping opportunity check:', {
+        hasSelectedPair: !!selectedPairRef.current,
+        hasService: !!serviceRef.current,
+        isRunning
+      });
       return;
     }
 
-    console.log('[useBot] Starting search with state:', {
-      isRunning,
-      isInitialized,
-      selectedPair: selectedPair ? {
+    try {
+      const selectedPair = selectedPairRef.current;
+      const service = serviceRef.current;
+      
+      console.log('[Bot] Starting opportunity check:', {
+        pair: `${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}`,
+        fromToken: selectedPair.fromToken,
+        toToken: selectedPair.toToken,
+        poolIds: selectedPair.allPoolIds,
+        serviceInitialized: !!service
+      });
+
+      // Get all pools for the pair first
+      console.log('[Bot] Calling getPoolsForPair...');
+      const pools = await service.getPoolsForPair(selectedPair.fromToken, selectedPair.toToken);
+      console.log('[Bot] getPoolsForPair returned:', pools?.length || 0, 'pools');
+
+      if (!pools || pools.length === 0) {
+        console.log('[Bot] No pools found');
+        addLog('info', 'No pools found');
+        return;
+      }
+
+      console.log('[Bot] Got pools:', {
+        count: pools.length,
+        pools: pools.map(p => ({
+          id: p.id,
+          name: p.name,
+          price: p.price.toString(),
+          tvl: p.tvl.toString()
+        }))
+      });
+
+      // Find arbitrage opportunities
+      console.log('[Bot] Finding arbitrage opportunities...');
+      const opportunities = await service.findArbitrageOpportunities(
+        selectedPair.fromToken,
+        selectedPair.toToken,
+        new Big(0.1) // Start with a small test amount
+      );
+
+      if (opportunities.length > 0) {
+        console.log('[Bot] Found opportunities:', opportunities.map(opp => ({
+          buyPool: {
+            name: opp.buyPool.name,
+            price: opp.buyPool.price.toString()
+          },
+          sellPool: {
+            name: opp.sellPool.name,
+            price: opp.sellPool.price.toString()
+          },
+          profit: opp.profitPercent.toString() + '%'
+        })));
+
+        opportunities.forEach((opp, index) => {
+          addLog('success', `Found opportunity ${index + 1}/${opportunities.length}`, {
+            buyPool: {
+              name: opp.buyPool.name,
+              price: opp.buyPool.price.toString(),
+              tvl: opp.buyPool.tvl.toString(),
+              volume24h: opp.buyPool.volume24h.toString()
+            },
+            sellPool: {
+              name: opp.sellPool.name,
+              price: opp.sellPool.price.toString(),
+              tvl: opp.sellPool.tvl.toString(),
+              volume24h: opp.sellPool.volume24h.toString()
+            },
+            metrics: {
+              profit: opp.profitPercent.toFixed(2) + '%',
+              confidence: (opp.confidence * 100).toFixed(1) + '%'
+            }
+          });
+        });
+      } else {
+        console.log('[Bot] No profitable opportunities found');
+        addLog('info', 'No profitable opportunities found');
+      }
+
+    } catch (error) {
+      if (!isRunning) {
+        console.log('[Bot] Error ignored because bot is stopping');
+        return;
+      }
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[Bot] Error checking opportunities:', errorMessage, error);
+      addLog('error', `Error checking opportunities: ${errorMessage}`);
+      setError(errorMessage);
+    }
+  }, [selectedPairRef, serviceRef, isRunning, addLog]);
+
+  const startBot = useCallback(async () => {
+    if (!selectedPairRef.current || !serviceRef.current || isRunning) {
+      console.error('[Bot] Cannot start bot:', {
+        hasSelectedPair: !!selectedPairRef.current,
+        hasService: !!serviceRef.current,
+        isRunning
+      });
+      return;
+    }
+
+    try {
+      const selectedPair = selectedPairRef.current;
+      
+      // Validate token info
+      if (!selectedPair.fromToken || !selectedPair.toToken) {
+        throw new Error('Invalid token pair selected');
+      }
+
+      // Validate pool IDs
+      if (!selectedPair.allPoolIds || selectedPair.allPoolIds.length === 0) {
+        throw new Error('No pool IDs found for selected pair');
+      }
+
+      console.log('[Bot] Starting bot with configuration:', {
+        pair: `${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}`,
+        fromToken: selectedPair.fromToken,
+        toToken: selectedPair.toToken,
+        poolIds: selectedPair.allPoolIds,
+        checkInterval: BOT_CHECK_INTERVAL
+      });
+
+      addLog('info', `Starting bot with configuration:`, {
+        pair: `${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}`,
         fromToken: {
           symbol: selectedPair.fromToken.symbol,
           address: selectedPair.fromToken.address
@@ -108,198 +226,63 @@ export const useBot = () => {
         toToken: {
           symbol: selectedPair.toToken.symbol,
           address: selectedPair.toToken.address
-        }
-      } : null,
-      minProfitPercent
-    });
-
-    if (!selectedPair) {
-      console.log('[useBot] Search skipped, no pair selected');
-      return;
-    }
-
-    if (!isInitialized) {
-      console.error('[useBot] Cannot search, not initialized');
-      setError('Bot is not initialized');
-      stopBot();
-      return;
-    }
-
-    try {
-      if (!isRunning) return; // Check if bot was stopped during initialization
-
-      console.log('[useBot] Searching for opportunities:', {
-        pair: `${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}`,
-        minProfit: minProfitPercent,
-        addresses: {
-          from: selectedPair.fromToken.address,
-          to: selectedPair.toToken.address
-        }
+        },
+        poolIds: selectedPair.allPoolIds,
+        checkInterval: BOT_CHECK_INTERVAL
       });
 
-      const { fromToken, toToken } = selectedPair;
-      const results = await findOpportunities(
-        fromToken.address,
-        toToken.address,
-        minProfitPercent
-      );
+      // Set the pool IDs for the selected pair
+      console.log('[Bot] Setting pool IDs:', selectedPair.allPoolIds);
+      serviceRef.current.setSelectedPairPoolIds(selectedPair.allPoolIds);
 
-      if (!isRunning) return; // Check if bot was stopped during search
-
-      console.log('[useBot] Search completed:', {
-        foundOpportunities: results.length,
-        firstOpportunity: results[0] ? {
-          profitPercent: results[0].profitPercent,
-          route: results[0].route
-        } : null
-      });
-
-      if (results && results.length > 0) {
-        if (!isRunning) return; // Check if bot was stopped before executing trade
-
-        console.log('[useBot] Found opportunity:', {
-          opportunity: results[0],
-          profitPercent: results[0].profitPercent
-        });
-        
-        if (results[0].profitPercent >= minProfitPercent) {
-          console.log('[useBot] Executing arbitrage:', {
-            profit: results[0].profitPercent,
-            threshold: minProfitPercent
-          });
-
-          await executeArbitrage(
-            fromToken.address,
-            toToken.address,
-            '1',
-            fromToken.symbol,
-            toToken.symbol,
-            results[0].route
-          );
-        }
-      } else {
-        if (!isRunning) return; // Check if bot was stopped after search
-        console.log('[useBot] No opportunities found');
-      }
-    } catch (err) {
-      if (!isRunning) return; // Check if bot was stopped during error
-
-      const errorMsg = err instanceof Error ? err.message : 'Failed to search for opportunities';
-      console.error('[useBot] Search failed:', {
-        error: errorMsg,
-        details: err
-      });
-      setError(errorMsg);
-      stopBot();
-    }
-  }, [selectedPair, minProfitPercent, findOpportunities, executeArbitrage, isInitialized, stopBot, isRunning]);
-
-  const startBot = useCallback(() => {
-    console.log('[useBot] Starting bot:', {
-      isRunning,
-      selectedPair: selectedPair ? {
-        fromToken: selectedPair.fromToken.symbol,
-        toToken: selectedPair.toToken.symbol
-      } : null,
-      isInitialized,
-      isConnected,
-      publicKey: publicKey?.toString()
-    });
-
-    if (!isConnected || !publicKey) {
-      const error = 'Please connect your wallet first';
-      console.error('[useBot] Cannot start:', error);
-      setError(error);
-      return;
-    }
-
-    if (!isInitialized) {
-      const error = 'Service not initialized yet';
-      console.error('[useBot] Cannot start:', error);
-      setError(error);
-      return;
-    }
-
-    if (!selectedPair) {
-      const error = 'Please select a token pair first';
-      console.error('[useBot] Cannot start:', error);
-      setError(error);
-      return;
-    }
-
-    try {
+      // Important: Set running state before starting checks
       setIsRunning(true);
       setError(null);
 
-      // Start search interval
-      const intervalId = setInterval(searchForOpportunities, SEARCH_INTERVAL_MS);
-      setSearchIntervalId(intervalId);
+      // Start the opportunity checking loop
+      console.log('[Bot] Starting first opportunity check');
+      try {
+        await checkArbitrageOpportunities();
+        console.log('[Bot] First opportunity check completed');
+      } catch (error) {
+        console.error('[Bot] Error in first opportunity check:', error);
+        setIsRunning(false); // Make sure to set running to false if first check fails
+        throw error;
+      }
 
-      // Trigger initial search
-      searchForOpportunities();
+      // Set up interval for continuous checking
+      console.log('[Bot] Setting up interval check every', BOT_CHECK_INTERVAL, 'ms');
+      intervalRef.current = setInterval(checkArbitrageOpportunities, BOT_CHECK_INTERVAL);
 
-      console.log('[useBot] Bot started successfully');
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to start bot';
-      console.error('[useBot] Start failed:', errorMsg);
-      setError(errorMsg);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[Bot] Failed to start bot:', errorMessage);
+      addLog('error', `Failed to start bot: ${errorMessage}`);
+      setError(errorMessage);
       setIsRunning(false);
     }
-  }, [selectedPair, searchForOpportunities, isInitialized, isConnected, publicKey]);
+  }, [selectedPairRef, serviceRef, isRunning, addLog, checkArbitrageOpportunities]);
 
-  useEffect(() => {
-    return () => {
-      if (searchIntervalId) {
-        clearInterval(searchIntervalId);
-      }
-    };
-  }, [searchIntervalId]);
-
-  useEffect(() => {
-    console.log('[useBot] Checking initialization:', {
-      isRunning,
-      hasSelectedPair: !!selectedPair,
-      arbitrageInitialized: isInitialized
-    });
-
-    if (isInitialized) {
-      setError(null);
+  const stopBot = useCallback(() => {
+    console.log('[Bot] Stopping bot');
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
-  }, [isInitialized, selectedPair]);
-
-  useEffect(() => {
-    if ((!isConnected || !isInitialized) && isRunning) {
-      addLog('error', 'Dependencies lost, stopping bot', {
-        isConnected,
-        isInitialized
-      });
-      stopBot();
-      
-      if (!isConnected) {
-        setError('Wallet disconnected');
-      } else if (!isInitialized) {
-        setError('Arbitrage service not initialized');
-      }
-    }
-  }, [isConnected, isInitialized, isRunning, addLog, stopBot]);
-
-  useEffect(() => {
-    if (arbitrageError && isRunning) {
-      addLog('error', arbitrageError);
-      stopBot();
-    }
-  }, [arbitrageError, isRunning, addLog, stopBot]);
+    setIsRunning(false);
+    setError(null);
+    addLog('info', 'Bot stopped');
+  }, [addLog]);
 
   return {
     isRunning,
+    error,
+    logs,
     startBot,
     stopBot,
+    initializeBot,
     setSelectedPair,
-    error,
-    isInitialized,
-    opportunities,
-    isSearching,
-    lastOpportunity,
-    logs
   };
 };
+
+export default useBot;

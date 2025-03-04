@@ -1,8 +1,21 @@
-import React, { useEffect, useState, useCallback } from 'react';
+'use client';
+
+import React from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { SUPPORTED_CHAINS } from '@/constant/chains';
-import { useConnection } from '@solana/wallet-adapter-react';
+import dynamic from 'next/dynamic';
+import {SUPPORTED_CHAINS} from '@/constant/chains';
+// Dynamically import WalletMultiButton with no SSR
+const WalletMultiButton = dynamic(
+  () => import('@solana/wallet-adapter-react-ui').then(mod => mod.WalletMultiButton),
+  { 
+    ssr: false,
+    loading: () => (
+      <button className="btn-primary px-4 py-2 rounded-md">
+        Loading...
+      </button>
+    )
+  }
+);
 
 interface PhantomWalletConnectProps {
   onConnect: (address: string) => void;
@@ -17,21 +30,14 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
   selectedChain,
   onChainChange,
 }) => {
-  console.log('[PhantomWalletConnect] Rendering with props:', { selectedChain });
-
   const { publicKey, connected, disconnect } = useWallet();
-  const { connection } = useConnection();
-  const [evmAddress, setEvmAddress] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [evmAddress, setEvmAddress] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
-  useEffect(() => {
+  React.useEffect(() => {
     console.log('[PhantomWalletConnect] Wallet state changed:', {
       connected,
       publicKey: publicKey?.toString(),
-      connection: {
-        endpoint: connection?.rpcEndpoint,
-        commitment: connection?.commitment
-      }
     });
 
     if (connected && publicKey) {
@@ -41,7 +47,7 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
       console.log('[PhantomWalletConnect] Calling onDisconnect');
       onDisconnect();
     }
-  }, [connected, publicKey, connection, onConnect, onDisconnect]);
+  }, [connected, publicKey, onConnect, onDisconnect]);
 
   const handleChainChange = (chain: string) => {
     console.log('[PhantomWalletConnect] Chain change requested:', { 
@@ -73,7 +79,7 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
     }
   };
 
-  const handleDisconnect = useCallback(async () => {
+  const handleDisconnect = React.useCallback(async () => {
     console.log('[PhantomWalletConnect] Disconnect requested for chain:', selectedChain);
     
     try {
@@ -99,7 +105,7 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
     }
   }, [selectedChain, disconnect, onDisconnect]);
 
-  const connectMetaMask = useCallback(async () => {
+  const connectMetaMask = React.useCallback(async () => {
     console.log('[PhantomWalletConnect] Connecting to MetaMask wallet');
     
     try {
@@ -214,7 +220,7 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
     }
   }, [selectedChain, onConnect, handleDisconnect]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     console.log('[PhantomWalletConnect] Connection effect triggered:', {
       connected,
       publicKey: publicKey?.toString(),
@@ -236,7 +242,7 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
     }
   }, [connected, publicKey, onConnect]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     return () => {
       if (window.ethereum) {
         window.ethereum.removeListener('accountsChanged', () => {});
@@ -348,4 +354,7 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
   );
 };
 
-export default PhantomWalletConnect;
+// Export as a dynamic component with no SSR
+export default dynamic(() => Promise.resolve(PhantomWalletConnect), {
+  ssr: false,
+});

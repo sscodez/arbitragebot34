@@ -6,62 +6,86 @@ const BotControl: React.FC<BotControlProps> = ({
   onStart,
   onStop,
   onToggleExecution,
-  isExecutionEnabled,
+  isExecutionEnabled
 }) => {
+  const isRunning = status.isRunning;
+  const walletConnected = !!status.address;
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-col space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-700">Bot Status</span>
-          <span
-            className={`px-2 py-1 rounded-full text-xs font-medium ${
-              status.isRunning
-                ? 'bg-green-100 text-green-800'
-                : 'bg-red-100 text-red-800'
-            }`}
-          >
-            {status.isRunning ? 'Running' : 'Stopped'}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <span className={`w-2 h-2 rounded-full ${isRunning ? 'bg-primary' : 'bg-destructive'}`} />
+          <span className="text-sm text-muted-foreground">
+            Status: {isRunning ? 'Running' : 'Stopped'}
           </span>
         </div>
-
-        {status.address && (
-          <div className="text-sm text-gray-600">
-            <div className="flex justify-between items-center">
-              <span>Bot Address:</span>
-              <span className="font-mono">
-                {status.address.slice(0, 6)}...{status.address.slice(-4)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span>Balance:</span>
-              <span>{status.balance}</span>
-            </div>
-          </div>
-        )}
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-muted-foreground">
+            Wallet: {walletConnected ? status.address.slice(0, 6) + '...' + status.address.slice(-4) : 'Not Connected'}
+          </span>
+        </div>
       </div>
 
-      <div className="flex flex-col space-y-3">
-        <button
-          onClick={status.isRunning ? onStop : onStart}
-          className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${
-            status.isRunning
-              ? 'bg-red-500 hover:bg-red-600 text-white'
-              : 'bg-green-500 hover:bg-green-600 text-white'
-          }`}
-        >
-          {status.isRunning ? 'Stop Bot' : 'Start Bot'}
-        </button>
+      <div className="flex flex-col space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <button
+            onClick={onStart}
+            disabled={!walletConnected || isRunning}
+            className={`px-4 py-2 rounded-lg font-medium ${
+              !walletConnected || isRunning
+                ? 'bg-primary/50 text-primary-foreground/50 cursor-not-allowed'
+                : 'bg-primary text-primary-foreground hover:bg-primary/90'
+            }`}
+          >
+            Start Bot
+          </button>
+          <button
+            onClick={onStop}
+            disabled={!isRunning}
+            className={`px-4 py-2 rounded-lg font-medium ${
+              !isRunning
+                ? 'bg-destructive/50 text-destructive-foreground/50 cursor-not-allowed'
+                : 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+            }`}
+          >
+            Stop Bot
+          </button>
+        </div>
 
-        <button
-          onClick={onToggleExecution}
-          className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${
-            isExecutionEnabled
-              ? 'bg-yellow-500 hover:bg-yellow-600 text-white'
-              : 'bg-gray-500 hover:bg-gray-600 text-white'
-          }`}
-        >
-          {isExecutionEnabled ? 'Disable Execution' : 'Enable Execution'}
-        </button>
+        <div className="flex items-center justify-between p-4 bg-card rounded-lg border border-border">
+          <div className="flex items-center space-x-2">
+            <span className="text-sm font-medium">Auto-Execution</span>
+            <span className={`text-xs ${isExecutionEnabled ? 'text-primary' : 'text-muted-foreground'}`}>
+              {isExecutionEnabled ? 'Enabled' : 'Disabled'}
+            </span>
+          </div>
+          <button
+            onClick={onToggleExecution}
+            disabled={!walletConnected}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full ${
+              isExecutionEnabled ? 'bg-primary' : 'bg-secondary'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                isExecutionEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* Bot Statistics */}
+      <div className="grid grid-cols-2 gap-4 mt-4">
+        <div className="p-4 bg-card rounded-lg border border-border">
+          <div className="text-sm text-muted-foreground">Balance</div>
+          <div className="text-xl font-semibold">{status.balance} SOL</div>
+        </div>
+        <div className="p-4 bg-card rounded-lg border border-border">
+          <div className="text-sm text-muted-foreground">24h Profit</div>
+          <div className="text-xl font-semibold text-primary">+0.00 SOL</div>
+        </div>
       </div>
     </div>
   );

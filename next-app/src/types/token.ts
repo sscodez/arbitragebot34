@@ -1,34 +1,34 @@
 import { ethers } from 'ethers';
 
-export interface Token {
+export interface TokenInfo {
   address: string;
-  name: string;
   symbol: string;
   decimals: number;
+  name?: string;
   icon?: string;
 }
 
 export interface TokenPairSelectorProps {
-  onPairSelect: (pairData: TokenPairData) => void;
+  onPairSelect: (pairData: TokenPair) => void;
   provider: ethers.providers.Provider;
   walletAddress: string;
 }
 
-export interface TokenPairData {
-  fromToken: Token;
-  toToken: Token;
-  fromBalance: string;
-  toBalance: string;
-  fromPrice: string;
-  toPrice: string;
+export interface TokenPair {
+  tokenA: TokenInfo;
+  tokenB: TokenInfo;
 }
 
-export interface TokenBalances {
-  [key: string]: string;
+export interface TokenBalance {
+  token: TokenInfo;
+  amount: string;
+  usdValue?: string;
 }
 
-export interface TokenPrices {
-  [key: string]: string;
+export interface TokenPrice {
+  token: TokenInfo;
+  usdPrice: string;
+  timestamp: number;
 }
 
 export interface TokenSelectorProps {
@@ -39,11 +39,11 @@ export interface TokenSelectorProps {
 }
 
 export interface SelectedPair {
-  fromToken: Token;
-  toToken: Token;
+  fromToken: TokenInfo;
+  toToken: TokenInfo;
 }
 
-export interface TokenWithBalance extends Token {
+export interface TokenWithBalance extends TokenInfo {
   balance: string;
   price: string;
 }

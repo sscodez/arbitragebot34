@@ -1,28 +1,29 @@
-import  { useState, useEffect, useCallback, useMemo } from 'react';
-import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
-import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import {
-  PhantomWalletAdapter,
-  SolflareWalletAdapter,
-  TorusWalletAdapter,
-} from '@solana/wallet-adapter-wallets';
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { Connection } from '@solana/web3.js';
-import '@solana/wallet-adapter-react-ui/styles.css';
-import PhantomWalletConnect from './components/PhantomWalletConnect';
-import TokenPairSelector from './components/TokenPairSelector';
-import BotControl from './components/BotControl';
-import TradingConfig from './components/TradingConfig';
-import LogViewer from './components/LogViewer';
-import ErrorBoundary from './components/ErrorBoundary';
-import { Log, SelectedPair, BotStatus, TradingConfig as TradingConfigType } from './types/app';
-import { useBot } from './hooks/useBot';
 
-function AppContent({ connection }: { connection: Connection }): JSX.Element {
+// Import non-wallet related components normally
+import TokenPairSelector from '@/components/TokenPairSelector';
+import BotControl from '@/components/BotControl';
+import TradingConfig from '@/components/TradingConfig';
+import LogViewer from '@/components/LogViewer';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import { Log, SelectedPair, BotStatus, TradingConfig as TradingConfigType } from '@/types/app';
+import { useBot } from '@/hooks/useBot';
+import { SolanaDexService } from '@/services/solanaDexService';
 
+// Dynamically import wallet-related components with no SSR
+const ClientWallet = dynamic(
+  () => import('@/components/ClientWallet').then(mod => mod.default),
+  { ssr: false }
+);
 
-  // Wallet state
+export default function Home() {
   const [walletAddress, setWalletAddress] = useState<string>('');
   const [selectedChain, setSelectedChain] = useState<string>('SOLANA');
+  const [selectedPair, setSelectedPair] = useState<SelectedPair | null>(null);
   const [logs, setLogs] = useState<Log[]>([]);
   const [botStatus, setBotStatus] = useState<BotStatus>({
     isRunning: false,
@@ -30,370 +31,207 @@ function AppContent({ connection }: { connection: Connection }): JSX.Element {
     balance: '0',
   });
 
-
-
-  // Add log helper
+  // Add log helper function
   const addLog = useCallback((type: 'info' | 'success' | 'error', message: string, metadata?: any) => {
-    const log = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      type,
-      message,
-      timestamp: Date.now(),
-      metadata,
-      source: 'app'
-    };
-    console.log(`[App] ${type}:`, message, metadata || '');
-    setLogs(prevLogs => [...prevLogs, log]);
+    setLogs(prevLogs => {
+      const newLog = {
+        id: `${prevLogs.length}-${Math.random().toString(36).substr(2, 9)}`,
+        type,
+        message,
+        timestamp: Date.now(),
+        metadata,
+        source: 'app'
+      };
+      console.log(`[App] ${type.toUpperCase()}: ${message}`, metadata || '');
+      return [...prevLogs, newLog];
+    });
   }, []);
 
-  // Trading state
-  const [tradingConfig, setTradingConfig] = useState<TradingConfigType>({
-    maxDailyTrades: 50,
-    minProfitPercent: 0.5,
-    maxTradeAmount: '1000',
-    slippageTolerance: 0.5,
-  });
-
-  // Bot state
-  const [selectedPair, setSelectedPair] = useState<SelectedPair | null>(null);
-  const [tradeExecutionEnabled, setTradeExecutionEnabled] = useState(false);
-
-  // Bot controls
   const {
-    startBot: startBotHook,
-    stopBot: stopBotHook,
     isRunning,
-    error: botError,
+    error,
+    logs: botLogs,
+    startBot,
+    stopBot,
+    initializeBot,
     setSelectedPair: setBotSelectedPair,
-    isInitialized: isBotInitialized,
-    logs: botLogs
   } = useBot();
 
+  // Initialize bot with Solana connection
+  useEffect(() => {
+    console.log('[App] Initializing bot...');
+    try {
+      const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
+      const service = new SolanaDexService(connection);
+      initializeBot(service);
+      console.log('[App] Bot initialized successfully');
+    } catch (error) {
+      console.error('[App] Failed to initialize bot:', error);
+      addLog('error', 'Failed to initialize bot: ' + (error instanceof Error ? error.message : String(error)));
+    }
+  }, [initializeBot, addLog]);
 
-    //Handle Pair Selection
-    const handlePairSelect = useCallback((pair: SelectedPair) => {
-    console.log('[App] Token pair selected:', {
-      from: pair.fromToken.symbol,
-      to: pair.toToken.symbol
-    });
+  // Sync bot logs with app logs
+  useEffect(() => {
+    setLogs(prevLogs => [...prevLogs, ...botLogs]);
+  }, [botLogs]);
+
+  // Update bot status
+  useEffect(() => {
+    setBotStatus(prev => ({
+      ...prev,
+      isRunning,
+      address: walletAddress,
+    }));
+  }, [isRunning, walletAddress]);
+
+  const [tradingConfig, setTradingConfig] = useState<TradingConfigType>({
+    riskTolerance: 50,
+    stopLoss: 15,
+    autoAdjustStopLoss: false,
+    positionSizeLimit: 30,
+    leverageLimit: 2,
+    alerts: {
+      priceChange: true,
+      stopLoss: true,
+      profitTarget: true
+    }
+  });
+
+  // Handle pair selection
+  const handlePairSelect = useCallback((pair: SelectedPair) => {
+    console.log('[App] Pair selected:', pair);
     setSelectedPair(pair);
     setBotSelectedPair(pair);
-  }, [setBotSelectedPair]);
-
-  // Stop the bot
-  const stopBot = useCallback(() => {
-    console.log('[App] Stopping bot...');
-    try {
-      stopBotHook();
-      setBotStatus(prev => ({ ...prev, isRunning: false }));
-      addLog('info', 'Bot stopped');
-    } catch (err) {
-      console.error('[App] Error stopping bot:', err);
-      addLog('error', err instanceof Error ? err.message : 'Failed to stop bot');
-    }
-  }, [stopBotHook, addLog]);
-
-
-  // Handle wallet connection
-  const handleWalletDisconnect = useCallback(() => {
-    console.log('[App] Wallet disconnected');
-    setWalletAddress('');
-    setBotStatus(prev => ({ ...prev, address: '', isRunning: false }));
-    stopBot();
-    addLog('info', 'Wallet disconnected');
-  }, [stopBot, addLog]);
-
-  // Handle wallet connection
-  const handleWalletConnect = useCallback((address: string) => {
-    console.log('[App] Wallet connected:', {
-      address,
-      connection: {
-        endpoint: connection.rpcEndpoint,
-        commitment: connection.commitment
-      }
+    addLog('info', `Selected trading pair: ${pair.fromToken.symbol}/${pair.toToken.symbol}`, {
+      poolId: pair.poolId,
+      fromToken: pair.fromToken.symbol,
+      toToken: pair.toToken.symbol
     });
-    setWalletAddress(address);
-    setBotStatus(prev => ({ ...prev, address }));
-    addLog('success', `Connected to wallet: ${address}`);
-  }, [connection, addLog]);
+  }, [addLog, setBotSelectedPair]);
 
-  // Start the bot
-  const startBot = useCallback(() => {
-    console.log('[App] Starting bot...', {
-      walletAddress,
-      selectedPair: selectedPair ? {
-        fromToken: {
-          symbol: selectedPair.fromToken.symbol,
-          address: selectedPair.fromToken.address
-        },
-        toToken: {
-          symbol: selectedPair.toToken.symbol,
-          address: selectedPair.toToken.address
-        }
-      } : null,
-      chain: selectedChain,
-      isInitialized: isBotInitialized,
-      connection: {
-        endpoint: connection.rpcEndpoint,
-        commitment: connection.commitment
-      }
-    });
-
-    if (!walletAddress) {
-      const error = 'Please connect your wallet first';
-      console.error('[App] Start failed:', error);
-      addLog('error', error);
-      return;
-    }
-
-    if (!isBotInitialized) {
-      const error = 'Bot is not ready yet. Please wait for initialization to complete.';
-      console.error('[App] Start failed:', error);
-      addLog('error', error);
-      return;
-    }
-
-    if (!selectedPair) {
-      const error = 'Please select a token pair first';
-      console.error('[App] Start failed:', error);
-      addLog('error', error);
-      return;
-    }
-
-    try {
-      console.log('[App] Calling startBotHook...');
-      startBotHook();
-      console.log('[App] Bot hook started');
-      
-      setBotStatus(prev => ({ ...prev, isRunning: true }));
-      addLog('success', 'Bot started successfully');
-    } catch (err) {
-      console.error('[App] Error starting bot:', {
-        error: err instanceof Error ? err.message : 'Unknown error',
-        details: err
-      });
-      addLog('error', err instanceof Error ? err.message : 'Failed to start bot');
-    }
-  }, [walletAddress, selectedPair, startBotHook, selectedChain, isBotInitialized, connection, addLog]);
-
-  // Handle chain selection
-
-  const handleChainSelect = useCallback((chain: string) => {
-    setSelectedChain(chain);
-    addLog('info', `Switched to ${chain} chain`);
-    
-    // Reset selected pair when changing chains
-    setSelectedPair(null);
-    setBotSelectedPair(null);
-  }, [setBotSelectedPair, addLog]);
-
-  const toggleTradeExecution = useCallback(() => {
+  const handleStartBot = useCallback(() => {
     if (!walletAddress) {
       addLog('error', 'Please connect your wallet first');
       return;
     }
+    if (!selectedPair) {
+      addLog('error', 'Please select a token pair first');
+      return;
+    }
+    try {
+      startBot();
+      addLog('success', 'Bot started successfully');
+    } catch (err) {
+      addLog('error', 'Failed to start bot: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  }, [walletAddress, selectedPair, startBot, addLog]);
 
-    
-    setTradeExecutionEnabled(prev => !prev);
-    addLog('info', `Trade execution ${tradeExecutionEnabled ? 'disabled' : 'enabled'}`);
-  }, [walletAddress, tradeExecutionEnabled, addLog]);
+  const handleStopBot = useCallback(() => {
+    try {
+      stopBot();
+      addLog('info', 'Bot stopped successfully');
+    } catch (err) {
+      addLog('error', 'Failed to stop bot: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  }, [stopBot, addLog]);
 
-  const handleConfigChange = useCallback((newConfig: TradingConfigType) => {
-    setTradingConfig(newConfig);
-    addLog('info', 'Trading configuration updated');
+  const handleToggleExecution = useCallback(() => {
+    // TODO: Implement auto-execution toggle
+    addLog('info', 'Auto-execution toggle not implemented yet');
   }, [addLog]);
 
-
-  // Clear Logs
-
-  const clearLogs = useCallback(() => {
-    setLogs([]);
-  }, []);
-
-  // Effect to update bot status when isRunning changes
-  useEffect(() => {
-    console.log('[App] Bot running status changed:', isRunning);
-    setBotStatus(prev => ({ ...prev, isRunning }));
-  }, [isRunning]);
-
-  // Effect to sync bot logs
-  useEffect(() => {
-    if (botLogs.length > 0) {
-      setLogs(prevLogs => {
-        const uniqueLogs = new Map();
-        
-        // Add existing logs to map
-        prevLogs.forEach((log:any) => {
-          uniqueLogs.set(log.id, log);
-        });
-        
-        // Add new logs, overwriting any duplicates
-        botLogs.forEach(log => {
-          uniqueLogs.set(log.id, log);
-        });
-        
-        // Convert map back to array and sort by timestamp
-        return Array.from(uniqueLogs.values())
-          .sort((a, b) => a.timestamp - b.timestamp);
-      });
-    }
-  }, [botLogs]);
-
-  // Effect to handle bot errors
-  useEffect(() => {
-    if (botError) {
-      addLog('error', botError);
-    }
-  }, [botError, addLog]);
-
-  // Effect to update bot status when wallet changes
-  useEffect(() => {
-    console.log('[App] Wallet state changed:', {
-      address: walletAddress,
-      isInitialized: isBotInitialized
-    });
-    
-    setBotStatus(prev => ({
-      ...prev,
-      address: walletAddress,
-      isRunning: prev.isRunning && !!walletAddress && isBotInitialized
-    }));
-  }, [walletAddress, isBotInitialized]);
-
-  // Effect to initialize services when wallet connects
-  useEffect(() => {
-    if (walletAddress) {
-      console.log('[App] Initializing services after wallet connection:', {
-        address: walletAddress,
-        chain: selectedChain
-      });
-    }
-  }, [walletAddress, selectedChain]);
-
-  // Monitor bot state
-  useEffect(() => {
-    console.log('[App] Bot state changed:', {
-      isRunning,
-      walletAddress,
-      selectedPair: selectedPair ? `${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}` : null,
-      isBotInitialized,
-      botError
-    });
-
-    if (botError) {
-      console.error('[App] Bot error:', botError);
-      addLog('error', botError);
-    }
-  }, [isRunning, walletAddress, selectedPair, isBotInitialized, botError, addLog]);
-
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="container mx-auto px-4 py-8">
-        <header className="mb-8">
-          <h1 className="text-4xl font-bold text-primary mb-2">Arbitrage Bot</h1>
-          <p className="text-muted-foreground">Multi-Chain DEX Arbitrage Bot</p>
-        </header>
-
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-          {/* Left column */}
-          <div className="md:col-span-3 space-y-6">
-            <ErrorBoundary>
-
-            {/* Phantom Wallet*/}
-              <PhantomWalletConnect
-                onConnect={handleWalletConnect}
-                onDisconnect={handleWalletDisconnect}
-                selectedChain={selectedChain}
-                onChainChange={handleChainSelect}
-              />
-            </ErrorBoundary>
-
-            {/* Token Pair Selector */}
-            <div className="bg-card rounded-lg shadow-glow p-6 space-y-4">
-              <h2 className="text-xl font-semibold text-primary">Token Pair</h2>
-              <TokenPairSelector
-                chain={selectedChain}
-                selectedPair={selectedPair}
-                onPairSelect={handlePairSelect}
-              />
-            </div>
-
-
-            {/* Bot Control */}
-            <div className="bg-card rounded-lg shadow-glow p-6 space-y-4">
-              <h2 className="text-xl font-semibold text-primary">Bot Control</h2>
-              <BotControl
-                status={botStatus}
-                onStart={startBot}
-                onStop={stopBot}
-                onToggleExecution={toggleTradeExecution}
-                isExecutionEnabled={tradeExecutionEnabled}
-              />
-            </div>
-            {/* Trading Config   */}
-            <div className="bg-card rounded-lg shadow-glow p-6 space-y-4">
-              <h2 className="text-xl font-semibold text-primary">Trading Config</h2>
-              <TradingConfig
-                config={tradingConfig}
-                onConfigChange={handleConfigChange}
-              />
-            </div>
-          </div>
-
-          {/* Right column */}
-          <div className="md:col-span-9 space-y-6">
-            {/* Bot Logs */}
-            <div className="bg-card rounded-lg shadow-glow p-6 space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold text-primary">Bot Logs</h2>
-                <button
-                  onClick={clearLogs}
-                  className="px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg text-sm font-medium transition-all"
-                >
-                  Clear Logs
-                </button>
+    <ErrorBoundary>
+      <ClientWallet
+        onConnect={setWalletAddress}
+        onDisconnect={() => setWalletAddress('')}
+        walletAddress={walletAddress}
+      >
+        <main className="min-h-screen bg-background">
+          <nav className="border-b border-border bg-card">
+            <div className="container mx-auto px-4">
+              <div className="flex h-16 items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <span className="text-xl font-bold text-primary">Solana Arbitrage Bot</span>
+                  </div>
+                </div>
               </div>
-              <LogViewer logs={logs} />
+            </div>
+          </nav>
+
+          <div className="container mx-auto px-4 py-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Left Column */}
+              <div className="lg:col-span-4 space-y-6">
+                {/* Risk Score Card */}
+                <div className="card-stats hover-card">
+                  <h2 className="text-xl font-semibold text-primary mb-4">Risk Score</h2>
+                  <div className="flex items-end space-x-2">
+                    <span className="stat-value">85</span>
+                    <span className="text-sm text-muted-foreground">/100</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-2">Last updated 2m ago</p>
+                </div>
+
+                {/* Token Pair Selection */}
+                <div className="card-stats hover-card">
+                  <h2 className="text-xl font-semibold text-primary mb-4">Token Pair</h2>
+                  <TokenPairSelector
+                    chain={selectedChain}
+                    onSelect={handlePairSelect}
+                    selectedPair={selectedPair}
+                  />
+                </div>
+
+                {/* Trading Configuration */}
+                <div className="card-stats hover-card">
+                  <h2 className="text-xl font-semibold text-primary mb-4">Trading Configuration</h2>
+                  <TradingConfig
+                    config={tradingConfig}
+                    onConfigChange={setTradingConfig}
+                  />
+                </div>
+              </div>
+
+              {/* Right Column */}
+              <div className="lg:col-span-8 space-y-6">
+                {/* Bot Control */}
+                <div className="card-stats hover-card">
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-semibold text-primary">Bot Control</h2>
+                  </div>
+                  <BotControl
+                    status={botStatus}
+                    onStart={handleStartBot}
+                    onStop={handleStopBot}
+                    onToggleExecution={handleToggleExecution}
+                    isExecutionEnabled={false}
+                  />
+                </div>
+
+                {/* Log Viewer */}
+                <div className="card-stats hover-card">
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold text-primary">Bot Logs</h2>
+                  </div>
+                  <LogViewer
+                    logs={logs}
+                    botStatus={botStatus}
+                    walletConnected={!!walletAddress}
+                  />
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+        </main>
+      </ClientWallet>
+    </ErrorBoundary>
   );
 }
-
-function App(): JSX.Element {
-  // Initialize Solana connection with Alchemy endpoint
-  const endpoint = useMemo(() => {
-    const envEndpoint = import.meta.env.VITE_SOLANA_RPC_URL;
-    return envEndpoint && envEndpoint.startsWith('http') 
-      ? envEndpoint 
-      : 'https://api.mainnet-beta.solana.com';
-  }, []);
-
-  console.log('[App] Using RPC endpoint:', endpoint);
-  
-  // You can add more wallets here
-  const wallets = useMemo(
-    () => [
-      new PhantomWalletAdapter(),
-      new SolflareWalletAdapter(),
-      new TorusWalletAdapter(),
-    ],
-    []
-  );
-
-  const connection = useMemo(() => new Connection(endpoint, 'confirmed'), [endpoint]);
-
-  return (
-    <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>
-          <AppContent connection={connection} />
-        </WalletModalProvider>
-      </WalletProvider>
-    </ConnectionProvider>
-  );
-}
-
-export default App;

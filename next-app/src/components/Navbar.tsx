@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import WalletConnect from './WalletConnect';
+import Link from 'next/link';
 
 interface NavbarProps {
   onConnect: (data: { address: string }) => void;
@@ -11,7 +12,7 @@ interface NavbarProps {
 const Navbar: React.FC<NavbarProps> = ({ onConnect, walletAddress, botStatus, rpcUrl }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const networkStatus = "Ethereum Mainnet"; // This could be dynamic based on the connected network
+  const networkStatus = "Solana Mainnet"; // Updated to Solana
 
   return (
     <nav className="border-b border-border bg-card">
@@ -35,9 +36,17 @@ const Navbar: React.FC<NavbarProps> = ({ onConnect, walletAddress, botStatus, rp
                   />
                 </svg>
               </div>
-              <span className="text-xl font-bold text-primary">Sass Dex Arbitrage</span>
+              <Link href="/" className="text-xl font-bold text-primary">
+                Solana Dex Arbitrage
+              </Link>
             </div>
-            <div className="hidden md:flex items-center space-x-4 text-sm">
+            <div className="hidden md:flex items-center space-x-4">
+              <Link 
+                href="/arbitrage" 
+                className="px-3 py-1 rounded-full bg-secondary text-muted-foreground hover:bg-secondary/80"
+              >
+                Arbitrage Scanner
+              </Link>
               <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-secondary">
                 <span className="w-2 h-2 rounded-full bg-primary"></span>
                 <span className="text-muted-foreground">{networkStatus}</span>
@@ -51,62 +60,13 @@ const Navbar: React.FC<NavbarProps> = ({ onConnect, walletAddress, botStatus, rp
             </div>
           </div>
 
-          {/* Right section - Wallet and Settings */}
+          {/* Right section - Wallet Connect */}
           <div className="flex items-center space-x-4">
             <WalletConnect 
               onConnect={onConnect} 
-              rpcUrl={rpcUrl} 
-              walletAddress={walletAddress}
+              walletAddress={walletAddress} 
+              rpcUrl={rpcUrl}
             />
-
-            {/* Settings Button */}
-            <button
-              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-              className="p-2 rounded-lg hover:bg-secondary transition-colors"
-            >
-              <svg 
-                className="w-5 h-5 text-muted-foreground" 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                />
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-              </svg>
-            </button>
-
-            {/* Settings Dropdown */}
-            {isSettingsOpen && (
-              <div className="absolute right-4 top-16 mt-2 w-56 rounded-lg bg-card border border-border shadow-lg">
-                <div className="p-2">
-                  <div className="px-3 py-2 text-sm font-medium text-primary">Settings</div>
-                  <div className="divide-y divide-border">
-                    <button className="w-full px-3 py-2 text-sm text-foreground hover:bg-secondary rounded-md">
-                      Network Settings
-                    </button>
-                    <button className="w-full px-3 py-2 text-sm text-foreground hover:bg-secondary rounded-md">
-                      Gas Settings
-                    </button>
-                    <button className="w-full px-3 py-2 text-sm text-foreground hover:bg-secondary rounded-md">
-                      Notifications
-                    </button>
-                    <button className="w-full px-3 py-2 text-sm text-destructive hover:bg-secondary rounded-md">
-                      Disconnect Wallet
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

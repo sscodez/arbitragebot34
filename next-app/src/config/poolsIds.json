@@ -1,0 +1,36 @@
+{
+  "solana": {
+    "pools": [
+      {
+        "fromToken": "SOL",
+        "toToken": "USDC",
+        "poolId": "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2"
+      },
+      {
+        "fromToken": "SOL",
+        "toToken": "USDT",
+        "poolId": "2E5cDmwcdYzEy8zN8MkFLHKQbhxkUxqJwJVxvYbJUxTt"
+      },
+      {
+        "fromToken": "USDC",
+        "toToken": "USDT",
+        "poolId": "6bHkoSxnK3uaYy5fzaJ2qR9m4Qq7qCvyNR7YhYNtL5ke"
+      },
+      {
+        "fromToken": "RAY",
+        "toToken": "SOL",
+        "poolId": "AVs9TA4nWDzfPJE9gGVNJMVhcQy3V9PGazuz33BfG2RA"
+      },
+      {
+        "fromToken": "RAY",
+        "toToken": "USDC",
+        "poolId": "6UmmUiYoBjSrhakAobJw8BvkmJtDVxaeBtbt7rxWo1mg"
+      },
+      {
+        "fromToken": "RAY",
+        "toToken": "USDT",
+        "poolId": "DVa7Qmb5ct9RCpaU7UTpSaf3GVMYz17vNVU67XpdCRut"
+      }
+    ]
+  }
+}

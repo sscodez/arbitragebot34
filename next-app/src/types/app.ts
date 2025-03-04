@@ -2,42 +2,56 @@ import { ethers } from 'ethers';
 import { Token } from './token';
 
 export interface Log {
-  type: 'success' | 'error' | 'info' | 'warning';
+  id: string;
+  type: 'info' | 'success' | 'error';
   message: string;
   timestamp: number;
-  data?: any;
-  source?: string;
-  level?: 'low' | 'medium' | 'high';
-  txHash?: string;
-  metadata?: {
-    chain?: string;
-    pair?: string;
-    amount?: string;
-    gas?: string;
-    [key: string]: any;
-  };
-}
-
-export interface SelectedPair {
-  fromToken: Token;
-  toToken: Token;
-  fromBalance: string;
-  toBalance: string;
-  fromPrice: string;
-  toPrice: string;
-}
-
-export interface TradingConfig {
-  maxDailyTrades: number;
-  minProfitPercent: number;
-  maxTradeAmount: string;
-  slippageTolerance: number;
+  metadata?: any;
+  source: string;
 }
 
 export interface BotStatus {
   isRunning: boolean;
   address: string;
   balance: string;
+}
+
+export interface Token {
+  symbol: string;
+  address: string;
+  decimals: number;
+}
+
+export interface SelectedPair {
+  fromToken: Token;
+  toToken: Token;
+  poolId: string;
+  allPoolIds: string[];
+}
+
+export interface TradingConfig {
+  riskTolerance: number; // 0-100
+  stopLoss: number; // percentage
+  autoAdjustStopLoss: boolean;
+  positionSizeLimit: number; // percentage of portfolio
+  leverageLimit: number; // multiplier
+  alerts: {
+    priceChange: boolean;
+    stopLoss: boolean;
+    profitTarget: boolean;
+  };
+  maxDailyTrades: number;
+  minProfitPercent: number;
+  maxTradeAmount: string;
+  slippageTolerance: number;
+}
+
+export interface ArbitrageOpportunity {
+  fromToken: Token;
+  toToken: Token;
+  profitPercent: number;
+  expectedProfit: string;
+  route: string[];
 }
 
 export interface Trade {
@@ -84,6 +98,8 @@ export interface TradeHistoryProps {
 
 export interface LogViewerProps {
   logs: Log[];
+  botStatus: BotStatus;
+  walletConnected: boolean;
 }
 
 export interface PhantomWalletConnectProps {
