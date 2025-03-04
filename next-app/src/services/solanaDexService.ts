@@ -237,11 +237,28 @@ export class SolanaDexService extends BaseService {
         return [];
       }
 
-      const opportunities: ArbitrageOpportunity[] = [];
-      const validPools = pools.filter(pool => 
-        new Big(pool.tvl).gt(MINIMUM_LIQUIDITY_THRESHOLD) &&
-        new Big(pool.volume24h).gt(0)
-      );
+      // Filter pools with sufficient liquidity but log the ones that are filtered out
+      const validPools = pools.filter(pool => {
+        const hasMinLiquidity = new Big(pool.tvl).gt(MINIMUM_LIQUIDITY_THRESHOLD);
+        const hasVolume = new Big(pool.volume24h).gt(0);
+        
+        if (!hasMinLiquidity) {
+          this.log('info', `Pool ${pool.name} filtered out due to insufficient liquidity`, {
+            poolId: pool.id,
+            tvl: pool.tvl.toString(),
+            minRequired: MINIMUM_LIQUIDITY_THRESHOLD.toString()
+          });
+        }
+        
+        if (!hasVolume) {
+          this.log('info', `Pool ${pool.name} filtered out due to no 24h volume`, {
+            poolId: pool.id,
+            volume24h: pool.volume24h.toString()
+          });
+        }
+        
+        return hasMinLiquidity && hasVolume;
+      });
 
       this.log('info', `Found ${validPools.length} valid pools with sufficient liquidity`, {
         validPools: validPools.map(p => ({
@@ -251,6 +268,8 @@ export class SolanaDexService extends BaseService {
           volume24h: p.volume24h.toString()
         }))
       });
+
+      const opportunities: ArbitrageOpportunity[] = [];
 
       // Compare each pair of pools
       for (let i = 0; i < validPools.length; i++) {
@@ -263,8 +282,23 @@ export class SolanaDexService extends BaseService {
             const buyPrice = new Big(poolA.price);
             const sellPrice = new Big(poolB.price);
 
+            // Log price comparison
+            this.log('info', `Comparing prices between pools:`, {
+              poolA: {
+                name: poolA.name,
+                price: buyPrice.toString()
+              },
+              poolB: {
+                name: poolB.name,
+                price: sellPrice.toString()
+              }
+            });
+
             // Skip if prices are equal
-            if (buyPrice.eq(sellPrice)) continue;
+            if (buyPrice.eq(sellPrice)) {
+              this.log('info', `Skipping equal prices between ${poolA.name} and ${poolB.name}`);
+              continue;
+            }
 
             // Determine buy and sell pools based on price
             const [buyPool, sellPool] = buyPrice.lt(sellPrice) 
@@ -276,7 +310,14 @@ export class SolanaDexService extends BaseService {
             const profit = sellAmount.sub(buyAmount);
             const profitPercent = profit.div(buyAmount).mul(100);
 
-            // Only consider profitable opportunities
+            this.log('info', `Calculated profit for ${buyPool.name} -> ${sellPool.name}`, {
+              buyAmount: buyAmount.toString(),
+              sellAmount: sellAmount.toString(),
+              profit: profit.toString(),
+              profitPercent: profitPercent.toFixed(2) + '%'
+            });
+
+            // Consider any profit as an opportunity but mark confidence accordingly
             if (profitPercent.gt(0)) {
               const confidence = this.calculateConfidence(buyPool, sellPool, profitPercent);
 
@@ -303,8 +344,8 @@ export class SolanaDexService extends BaseService {
               });
             }
           } catch (error) {
-            console.error('[SolanaDex] Error calculating arbitrage between pools:', {
-              error: error instanceof Error ? error.message : String(error),
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.log('error', `Error calculating arbitrage between pools: ${errorMessage}`, {
               poolA: poolA.id,
               poolB: poolB.id
             });
@@ -320,7 +361,6 @@ export class SolanaDexService extends BaseService {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[SolanaDex] Error finding arbitrage opportunities:', errorMessage);
       this.log('error', `Error finding arbitrage opportunities: ${errorMessage}`);
       throw error;
     }

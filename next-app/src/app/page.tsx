@@ -213,14 +213,18 @@ export default function Home() {
                 </div>
 
                 {/* Trading Configuration */}
-                <div className="card-stats hover-card">
+               
+                {/* <div className="card-stats hover-card">
                   <h2 className="text-xl font-semibold text-primary mb-4">Trading Configuration</h2>
-                  <TradingConfig
-                    config={tradingConfig}
-                    onConfigChange={setTradingConfig}
-                  />
-                </div>
+             
+            <TradingConfig
+            config={tradingConfig}
+                  onConfigChange={setTradingConfig}
+               /> 
+                
+                </div> */}
               </div>
+
 
               {/* Right Column */}
               <div className="lg:col-span-8 space-y-6">

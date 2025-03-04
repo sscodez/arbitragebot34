@@ -194,15 +194,13 @@ export class RaydiumService extends BaseService {
 
   private async fetchPoolWithRetry(poolId: string, retries = 3): Promise<RaydiumPoolResponse | null> {
     try {
-      console.log('[Raydium] Fetching pool data for:', poolId);
+      this.log('info', `Fetching pool data for: ${poolId}`);
       const apiUrl = `${RAYDIUM_API_ENDPOINT}/pools/info/ids?ids=${poolId}`;
-      console.log('[Raydium] API URL:', apiUrl);
-
+      
       const response = await fetch(apiUrl);
-      console.log('[Raydium] Response status:', response.status);
-
+      
       if (!response.ok) {
-        console.error('[Raydium] Failed to fetch pool data:', {
+        this.log('error', `Failed to fetch pool data: ${response.statusText}`, {
           poolId,
           status: response.status,
           statusText: response.statusText
@@ -211,18 +209,18 @@ export class RaydiumService extends BaseService {
       }
 
       const data = await response.json();
-      console.log('[Raydium] Raw response:', data);
 
       // Handle v3 API response format
       if (data.success && Array.isArray(data.data) && data.data.length > 0) {
         const poolData = data.data[0];
-        console.log('[Raydium] Pool data found:', {
-          poolId,
-          type: poolData.type,
-          mintA: poolData.mintA?.symbol,
-          mintB: poolData.mintB?.symbol,
-          price: poolData.price
-        });
+        
+        if (!this.isValidPoolData(poolData)) {
+          this.log('error', 'Invalid pool data received', {
+            poolId,
+            data: poolData
+          });
+          return null;
+        }
 
         const transformedPool = {
           id: poolId,
@@ -246,17 +244,18 @@ export class RaydiumService extends BaseService {
           type: poolData.type.toLowerCase()
         };
 
-        console.log('[Raydium] Transformed pool data:', {
+        this.log('success', 'Successfully fetched pool data', {
           id: transformedPool.id,
           name: transformedPool.name,
           price: transformedPool.price,
-          tvl: transformedPool.tvl
+          tvl: transformedPool.tvl,
+          volume24h: transformedPool.volume24h
         });
 
         return transformedPool;
       }
 
-      console.log('[Raydium] No pool data found:', {
+      this.log('error', 'No valid pool data found in response', {
         poolId,
         success: data.success,
         hasData: Array.isArray(data.data),
@@ -266,41 +265,43 @@ export class RaydiumService extends BaseService {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[Raydium] Error fetching pool:', {
+      this.log('error', `Error fetching pool: ${errorMessage}`, {
         poolId,
-        error: errorMessage,
         retriesLeft: retries
       });
 
       if (retries > 0) {
-        console.log('[Raydium] Retrying pool fetch...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        this.log('info', `Retrying pool fetch (${retries} attempts remaining)`);
+        await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY));
         return this.fetchPoolWithRetry(poolId, retries - 1);
       }
 
-      this.log('error', `Failed to fetch pool ${poolId} after ${3 - retries} retries: ${errorMessage}`);
       return null;
     }
   }
 
   private async updatePoolCache(poolIds: string[]) {
     try {
-      console.log('[Raydium] Starting pool cache update for', poolIds.length, 'pools');
+      this.log('info', `Starting pool cache update for ${poolIds.length} pools`);
 
       // Check if we need to update the cache
       const now = Date.now();
-      if (now - this.lastCacheUpdate < this.CACHE_TTL && this.poolCache.size > 0) {
-        console.log('[Raydium] Using cached pool data, age:', (now - this.lastCacheUpdate) / 1000, 'seconds');
+      const cacheAge = now - this.lastCacheUpdate;
+      
+      if (cacheAge < this.CACHE_TTL && this.poolCache.size > 0) {
+        this.log('info', `Using cached pool data (age: ${cacheAge/1000}s)`);
         return;
       }
 
-      // Process pools in batches to avoid rate limiting
+      // Process pools in batches
       const BATCH_SIZE = 3;
-      console.log('[Raydium] Processing pools in batches of', BATCH_SIZE);
-
+      const totalBatches = Math.ceil(poolIds.length / BATCH_SIZE);
+      
       for (let i = 0; i < poolIds.length; i += BATCH_SIZE) {
         const batch = poolIds.slice(i, i + BATCH_SIZE);
-        console.log('[Raydium] Processing batch', Math.floor(i/BATCH_SIZE) + 1, 'of', Math.ceil(poolIds.length/BATCH_SIZE));
+        const batchNumber = Math.floor(i/BATCH_SIZE) + 1;
+        
+        this.log('info', `Processing batch ${batchNumber}/${totalBatches}`);
 
         const batchPromises = batch.map(poolId => this.fetchPoolWithRetry(poolId));
         const batchResults = await Promise.all(batchPromises);
@@ -310,7 +311,7 @@ export class RaydiumService extends BaseService {
           if (pool) {
             const poolId = batch[index];
             this.poolCache.set(poolId, pool);
-            console.log('[Raydium] Added pool to cache:', {
+            this.log('success', `Added pool to cache: ${pool.name}`, {
               poolId,
               name: pool.name,
               mintA: pool.mintA.symbol,
@@ -319,23 +320,23 @@ export class RaydiumService extends BaseService {
           }
         });
 
-        // Add delay between batches
+        // Add delay between batches if not the last batch
         if (i + BATCH_SIZE < poolIds.length) {
-          const delay = 1000; // 1 second delay between batches
-          console.log('[Raydium] Waiting', delay, 'ms before next batch');
-          await new Promise(resolve => setTimeout(resolve, delay));
+          this.log('info', `Waiting ${this.BATCH_DELAY}ms before next batch`);
+          await new Promise(resolve => setTimeout(resolve, this.BATCH_DELAY));
         }
       }
 
       this.lastCacheUpdate = now;
-      console.log('[Raydium] Pool cache update completed:', {
+      this.log('success', `Pool cache update completed`, {
         totalPools: poolIds.length,
-        cachedPools: this.poolCache.size
+        cachedPools: this.poolCache.size,
+        timestamp: new Date(now).toISOString()
       });
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[Raydium] Error updating pool cache:', errorMessage);
+      this.log('error', `Error updating pool cache: ${errorMessage}`);
       throw error;
     }
   }

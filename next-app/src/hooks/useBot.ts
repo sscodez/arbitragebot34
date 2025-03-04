@@ -88,57 +88,50 @@ export const useBot = () => {
   const checkArbitrageOpportunities = useCallback(async () => {
     if (!serviceRef.current) {
       console.error('[Bot] Cannot check opportunities: service not initialized');
+      addLog('error', 'Bot service not initialized. Please try restarting the bot.');
       return;
     }
 
     try {
-      console.log('[Bot] Checking arbitrage opportunities');
       const service = serviceRef.current;
       const selectedPair = selectedPairRef.current;
       
       if (!selectedPair) {
         console.error('[Bot] No pair selected');
+        addLog('error', 'No trading pair selected. Please select a trading pair first.');
         return;
       }
 
-      // Get pools for the selected pair
-      console.log('[Bot] Getting pools for pair:', {
+      addLog('info', `Checking arbitrage opportunities for ${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}`, {
         fromToken: selectedPair.fromToken.symbol,
-        toToken: selectedPair.toToken.symbol
+        toToken: selectedPair.toToken.symbol,
+        poolIds: selectedPair.allPoolIds
       });
 
-      const pools = await service.getPoolsForPair(
-        selectedPair.fromToken,
-        selectedPair.toToken
-      );
-
-      console.log('[Bot] Retrieved pools:', pools.length);
-
-      if (!pools || pools.length === 0) {
-        console.log('[Bot] No pools found');
-        return;
-      }
-
-      // Find arbitrage opportunities
       const opportunities = await service.findArbitrageOpportunities(
         selectedPair.fromToken,
         selectedPair.toToken,
-        new Big(0.1) // Start with small test amount
+        new Big('100') // Use a fixed amount for testing
       );
 
-      if (opportunities && opportunities.length > 0) {
-        console.log('[Bot] Found opportunities:', opportunities.length);
+      if (opportunities.length === 0) {
+        addLog('info', `No profitable opportunities found for ${selectedPair.fromToken.symbol}/${selectedPair.toToken.symbol}`);
+      } else {
         opportunities.forEach(opp => {
-          addLog('success', 'Found arbitrage opportunity', {
-            buyPool: opp.buyPool.name,
-            sellPool: opp.sellPool.name,
-            profit: opp.profitPercent.toString() + '%'
+          addLog('success', `Found arbitrage opportunity with ${opp.profitPercent.toFixed(2)}% profit`, {
+            buyPool: {
+              name: opp.buyPool.name,
+              price: opp.buyPool.price.toString()
+            },
+            sellPool: {
+              name: opp.sellPool.name,
+              price: opp.sellPool.price.toString()
+            },
+            profitPercent: opp.profitPercent.toFixed(2) + '%',
+            confidence: (opp.confidence * 100).toFixed(1) + '%'
           });
         });
-      } else {
-        console.log('[Bot] No opportunities found this round');
       }
-
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[Bot] Error checking opportunities:', errorMessage);
