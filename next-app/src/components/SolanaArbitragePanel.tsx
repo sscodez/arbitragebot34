@@ -45,7 +45,7 @@ const SolanaArbitragePanel: React.FC = () => {
 
       setOpportunities(opportunities);
     } catch (error) {
-      console.error('Error finding opportunities:', error);
+      // console.error('Error finding opportunities:', error);
       setError('Failed to find arbitrage opportunities');
     } finally {
       setIsLoading(false);
@@ -77,7 +77,7 @@ const SolanaArbitragePanel: React.FC = () => {
 
       console.log('Arbitrage executed:', result);
     } catch (error) {
-      console.error('Error executing arbitrage:', error);
+      // console.error('Error executing arbitrage:', error);
       setError('Failed to execute arbitrage');
     } finally {
       setIsLoading(false);

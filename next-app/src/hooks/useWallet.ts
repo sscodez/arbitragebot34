@@ -42,18 +42,18 @@ export const useWallet = () => {
             setWallet(address);
             setIsConnected(true);
           } else {
-            throw new Error('Please install MetaMask');
+            // throw new Error('Please install MetaMask');
           }
           break;
         }
         
         default:
-          throw new Error('Unsupported chain');
+          // throw new Error('Unsupported chain');
       }
     } catch (error) {
       console.error('Error connecting wallet:', error);
       disconnectWallet();
-      throw error;
+      // throw error;
     }
   }, []);
 

@@ -32,7 +32,7 @@ const BotControl: React.FC<BotControlProps> = ({
       await onStart();
       console.log('[BotControl] Bot started successfully');
     } catch (error) {
-      console.error('[BotControl] Failed to start bot:', error);
+      // console.error('[BotControl] Failed to start bot:', error);
     }
   };
 
@@ -50,7 +50,7 @@ const BotControl: React.FC<BotControlProps> = ({
       onStop();
       console.log('[BotControl] Bot stopped successfully');
     } catch (error) {
-      console.error('[BotControl] Failed to stop bot:', error);
+      // console.error('[BotControl] Failed to stop bot:', error);
     }
   };
 

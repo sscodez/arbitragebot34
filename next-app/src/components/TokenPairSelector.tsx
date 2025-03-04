@@ -124,8 +124,8 @@ const TokenPairSelector: React.FC<TokenPairSelectorProps> = ({
             className="p-2 mt-1 rounded bg-gray-800 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">Select token</option>
-            {configuredTokens.map(token => (
-              <option key={token.address} value={token.symbol}>
+            {configuredTokens.map((token, index) => (
+              <option key={index} value={token.symbol}>
                 {token.symbol}
               </option>
             ))}
@@ -141,8 +141,8 @@ const TokenPairSelector: React.FC<TokenPairSelectorProps> = ({
             disabled={!fromToken}
           >
             <option value="">Select token</option>
-            {availableToTokens.map(token => (
-              <option key={token.address} value={token.symbol}>
+            {availableToTokens.map((token, index) => (
+              <option key={index} value={token.symbol}>
                 {token.symbol}
               </option>
             ))}

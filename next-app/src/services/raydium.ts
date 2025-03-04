@@ -30,8 +30,8 @@ export class RaydiumService extends BaseService {
   setSelectedPairPoolIds(poolIds: string[]) {
     console.log('[Raydium] Setting pool IDs:', poolIds);
     if (!poolIds || poolIds.length === 0) {
-      console.error('[Raydium] Cannot set empty pool IDs');
-      throw new Error('Cannot set empty pool IDs');
+      // console.error('[Raydium] Cannot set empty pool IDs');
+      // throw new Error('Cannot set empty pool IDs');
     }
     this.selectedPairPoolIds = poolIds;
     console.log('[Raydium] Pool IDs set successfully');
@@ -47,7 +47,7 @@ export class RaydiumService extends BaseService {
       const poolIds = this.selectedPairPoolIds;
       
       if (!poolIds || poolIds.length === 0) {
-        console.error('[Raydium] No pool IDs configured');
+        // console.error('[Raydium] No pool IDs configured');
         this.log('error', 'No pool IDs configured');
         return [];
       }
@@ -58,7 +58,7 @@ export class RaydiumService extends BaseService {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[Raydium] Error getting configured pool IDs:', errorMessage);
+      // console.error('[Raydium] Error getting configured pool IDs:', errorMessage);
       this.log('error', `Error getting configured pool IDs: ${errorMessage}`);
       return [];
     }
@@ -80,8 +80,8 @@ export class RaydiumService extends BaseService {
       });
 
       if (!poolIds || poolIds.length === 0) {
-        console.error('[Raydium] No pool IDs found in configuration');
-        throw new Error('No pool IDs found in configuration');
+        // console.error('[Raydium] No pool IDs found in configuration');
+        // throw new Error('No pool IDs found in configuration');
       }
 
       // Update pool cache
@@ -90,7 +90,7 @@ export class RaydiumService extends BaseService {
         await this.updatePoolCache(poolIds);
         console.log('[Raydium] Pool cache updated successfully. Cache size:', this.poolCache.size);
       } catch (error) {
-        console.error('[Raydium] Error updating pool cache:', error);
+        // console.error('[Raydium] Error updating pool cache:', error);
         throw error;
       }
 
@@ -183,12 +183,12 @@ export class RaydiumService extends BaseService {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[Raydium] Error in getPoolsForPair:', {
-        error: errorMessage,
-        tokenA: tokenA.symbol,
-        tokenB: tokenB.symbol
-      });
-      throw error;
+      // console.error('[Raydium] Error in getPoolsForPair:', {
+      //   error: errorMessage,
+      //   tokenA: tokenA.symbol,
+      //   tokenB: tokenB.symbol
+      // });
+      // throw error;
     }
   }
 
@@ -345,14 +345,14 @@ export class RaydiumService extends BaseService {
     try {
       const pool = this.poolCache.get(poolId);
       if (!pool) {
-        throw new Error(`Pool ${poolId} not found in cache`);
+        // throw new Error(`Pool ${poolId} not found in cache`);
       }
 
       return new Big(pool.price);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.log('error', `Error getting price from pool ${poolId}: ${errorMessage}`);
-      throw error;
+      // throw error;
     }
   }
 
@@ -379,7 +379,7 @@ export class RaydiumService extends BaseService {
       await this.updatePoolCache(this.getAllConfiguredPoolIds());
       const pool = this.poolCache.get(poolId);
       if (!pool) {
-        throw new Error(`Pool ${poolId} not found in cache`);
+        // throw new Error(`Pool ${poolId} not found in cache`);
       }
       const liquidity = new Big(pool.tvl);
       this.log('info', `Got liquidity from pool ${poolId}`, {
@@ -391,7 +391,7 @@ export class RaydiumService extends BaseService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.log('error', `Error getting liquidity from pool ${poolId}: ${errorMessage}`);
-      throw error;
+      // throw error;
     }
   }
 
@@ -424,7 +424,7 @@ export class RaydiumService extends BaseService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.log('error', `Error getting pools: ${errorMessage}`);
-      throw error;
+      // throw error;
     }
   }
 

@@ -30,7 +30,7 @@ const CustomWalletButton: FC = () => {
         }
       }
     } catch (error) {
-      console.error('Failed to connect wallet:', error);
+      // console.error('Failed to connect wallet:', error);
     }
   };
 

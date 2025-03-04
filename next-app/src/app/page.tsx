@@ -73,7 +73,7 @@ export default function Home() {
       initializeBot(dexService);
       console.log('[App] Bot initialization complete');
     } catch (error) {
-      console.error('[App] Bot initialization failed:', error);
+      // console.error('[App] Bot initialization failed:', error);
       addLog('error', 'Failed to initialize bot: ' + (error instanceof Error ? error.message : String(error)));
     }
   }, [initializeBot, addLog]);
@@ -129,13 +129,13 @@ export default function Home() {
     });
 
     if (!selectedPair) {
-      console.error('[App] Cannot start bot: no pair selected');
+      // console.error('[App] Cannot start bot: no pair selected');
       addLog('error', 'Please select a token pair first');
       return;
     }
 
     if (!walletAddress) {
-      console.error('[App] Cannot start bot: no wallet connected');
+      // console.error('[App] Cannot start bot: no wallet connected');
       addLog('error', 'Please connect your wallet first');
       return;
     }
@@ -147,7 +147,7 @@ export default function Home() {
       addLog('success', 'Bot started successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[App] Failed to start bot:', error);
+      // console.error('[App] Failed to start bot:', error);
       addLog('error', `Failed to start bot: ${errorMessage}`);
     }
   }, [walletAddress, selectedPair, startBot, addLog, isRunning]);

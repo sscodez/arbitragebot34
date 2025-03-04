@@ -22,9 +22,9 @@ const ChainSelector: React.FC<ChainSelectorProps> = ({ selectedChain, onChainSel
       </div>
       
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {chains.map(([chainId, chain]) => (
+        {chains.map(([chainId, chain],index) => (
           <button
-            key={chainId}
+            key={index}
             onClick={() => onChainSelect(chainId)}
             className={`
               relative flex flex-col items-center p-4 rounded-lg border transition-all

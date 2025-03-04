@@ -33,8 +33,8 @@ export class SolanaDexService extends BaseService {
   setSelectedPairPoolIds(poolIds: string[]) {
     console.log('[SolanaDex] Setting pool IDs:', poolIds);
     if (!this.raydiumService) {
-      console.error('[SolanaDex] Cannot set pool IDs: Raydium service not initialized');
-      throw new Error('Raydium service not initialized');
+      // console.error('[SolanaDex] Cannot set pool IDs: Raydium service not initialized');
+      // throw new Error('Raydium service not initialized');
     }
     this.raydiumService.setSelectedPairPoolIds(poolIds);
     console.log('[SolanaDex] Pool IDs set successfully');
@@ -62,7 +62,7 @@ export class SolanaDexService extends BaseService {
       
       // Transform Raydium pools to PoolInfo
       console.log('[SolanaDex] Transforming pools...');
-      const pools = raydiumPools.map(pool => this.transformRaydiumPool(pool, tokenA, tokenB));
+      const pools = raydiumPools?.map(pool => this.transformRaydiumPool(pool, tokenA, tokenB));
       console.log('[SolanaDex] Transformed', pools.length, 'pools');
       
       if (!this.isShuttingDown) {
@@ -91,14 +91,14 @@ export class SolanaDexService extends BaseService {
       return pools;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[SolanaDex] Error getting pools:', {
-        error: errorMessage,
-        tokenA: tokenA.symbol,
-        tokenB: tokenB.symbol
-      });
+      // console.error('[SolanaDex] Error getting pools:', {
+      //   error: errorMessage,
+      //   tokenA: tokenA.symbol,
+      //   tokenB: tokenB.symbol
+      // });
       if (!this.isShuttingDown) {
         this.log('error', `Error getting pools: ${errorMessage}`);
-        throw error;
+        // throw error;
       }
       return [];
     }
@@ -130,7 +130,7 @@ export class SolanaDexService extends BaseService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.log('error', `Error getting pools: ${errorMessage}`);
-      throw error;
+      // throw error;
     }
   }
 
@@ -177,7 +177,7 @@ export class SolanaDexService extends BaseService {
         tokenA: tokenA.symbol,
         tokenB: tokenB.symbol
       });
-      throw error;
+      // throw error;
     }
   }
 
@@ -189,7 +189,7 @@ export class SolanaDexService extends BaseService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.log('error', `Error getting price from pool ${poolId}: ${errorMessage}`);
-      throw error;
+      // throw error;
     }
   }
 
@@ -201,7 +201,7 @@ export class SolanaDexService extends BaseService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.log('error', `Error getting liquidity from pool ${poolId}: ${errorMessage}`);
-      throw error;
+      // throw error;
     }
   }
 
@@ -362,7 +362,7 @@ export class SolanaDexService extends BaseService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.log('error', `Error finding arbitrage opportunities: ${errorMessage}`);
-      throw error;
+      // throw error;
     }
   }
 

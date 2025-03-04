@@ -73,8 +73,8 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
       console.log('Chain change completed:', chain);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Chain change failed';
-      console.error('[PhantomWalletConnect] Chain change error:', err);
-      console.error('Chain change error:', err);
+      // console.error('[PhantomWalletConnect] Chain change error:', err);
+      // console.error('Chain change error:', err);
       setError(errorMsg);
     }
   };
@@ -99,8 +99,8 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
       console.log('Disconnect completed');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Disconnect failed';
-      console.error('[PhantomWalletConnect] Disconnect error:', err);
-      console.error('Disconnect error:', err);
+      // console.error('[PhantomWalletConnect] Disconnect error:', err);
+      // console.error('Disconnect error:', err);
       setError(errorMsg);
     }
   }, [selectedChain, disconnect, onDisconnect]);
@@ -177,7 +177,7 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
       });
       
       if (newChainId !== targetChainId) {
-        throw new Error(`Please switch to ${selectedChain === 'BSC' ? 'BNB Smart Chain' : 'Ethereum'} network in MetaMask`);
+        // throw new Error(`Please switch to ${selectedChain === 'BSC' ? 'BNB Smart Chain' : 'Ethereum'} network in MetaMask`);
       }
 
       // Request account access
@@ -186,7 +186,7 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
       });
 
       if (!accounts || accounts.length === 0) {
-        throw new Error('No accounts found. Please check MetaMask and try again.');
+        // throw new Error('No accounts found. Please check MetaMask and try again.');
       }
 
       const address = accounts[0];
@@ -213,8 +213,8 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
       });
 
     } catch (err: any) {
-      console.error('[PhantomWalletConnect] Failed to connect wallet:', err);
-      console.error('Failed to connect wallet:', err);
+      // console.error('[PhantomWalletConnect] Failed to connect wallet:', err);
+      // console.error('Failed to connect wallet:', err);
       setError(err.message || 'Failed to connect wallet. Please try again.');
       handleDisconnect();
     }
@@ -235,8 +235,8 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
         onConnect(address);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Connection handling failed';
-        console.error('[PhantomWalletConnect] Connection effect error:', err);
-        console.error('Error in connection effect:', err);
+        // console.error('[PhantomWalletConnect] Connection effect error:', err);
+        // console.error('Error in connection effect:', err);
         setError(errorMsg);
       }
     }
@@ -285,8 +285,8 @@ const PhantomWalletConnect: React.FC<PhantomWalletConnectProps> = ({
             value={selectedChain}
             onChange={(e) => handleChainChange(e.target.value)}
           >
-            {Object.entries(SUPPORTED_CHAINS).map(([chainKey, chain]) => (
-              <option key={chainKey} value={chainKey}>
+            {Object.entries(SUPPORTED_CHAINS).map(([chainKey, chain],index) => (
+              <option key={index} value={chainKey}>
                 {chain.name}
               </option>
             ))}

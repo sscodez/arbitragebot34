@@ -13,7 +13,7 @@ const TradingPairs = ({ pairs }) => {
       <AnimatePresence>
         {pairs?.map((pair, index) => (
           <MotionBox
-            key={pair.id}
+            key={index}
             bg={cardBg}
             p={4}
             borderRadius="lg"

@@ -25,7 +25,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ onConnect, rpcUrl, wallet
           const balanceEth = ethers.utils.formatEther(balanceWei);
           setBalance(parseFloat(balanceEth).toFixed(4));
         } catch (err) {
-          console.error('Error fetching wallet info:', err);
+          // console.error('Error fetching wallet info:', err);
         }
       }
     };
@@ -39,7 +39,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ onConnect, rpcUrl, wallet
 
     try {
       if (!window.ethereum) {
-        throw new Error('Please install MetaMask to connect your wallet');
+        // throw new Error('Please install MetaMask to connect your wallet');
       }
 
       const provider = new ethers.providers.Web3Provider(window.ethereum);
@@ -50,7 +50,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ onConnect, rpcUrl, wallet
       onConnect({ address });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to connect wallet');
-      console.error('Wallet connection error:', err);
+      // console.error('Wallet connection error:', err);
     } finally {
       setIsConnecting(false);
     }

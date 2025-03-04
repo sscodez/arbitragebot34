@@ -50,7 +50,7 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs, botStatus, walletConnected 
       try {
         content += ' ' + JSON.stringify(log.metadata, null, 2);
       } catch (err) {
-        console.error('Failed to stringify log metadata:', err);
+        // console.error('Failed to stringify log metadata:', err);
       }
     }
     return content;
@@ -191,9 +191,9 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs, botStatus, walletConnected 
               <span className="text-muted-foreground">No logs available</span>
             </div>
           ) : (
-            filteredLogs.map((log) => (
+            filteredLogs.map((log,index) => (
               <div
-                key={log.id}
+                key={index}
                 className="flex items-start space-x-2 p-2 rounded-md hover:bg-secondary/50 transition-colors"
               >
                 <span className="text-xs text-muted-foreground whitespace-nowrap">

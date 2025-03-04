@@ -122,9 +122,9 @@ const TokenPairs = ({ selectedDexes = [] }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {sortedPairs.map((pair) => (
+            {sortedPairs.map((pair,index) => (
               <TableRow 
-                key={pair.id}
+                key={index}
                 sx={{ 
                   '&:hover': { 
                     backgroundColor: 'background.paper',

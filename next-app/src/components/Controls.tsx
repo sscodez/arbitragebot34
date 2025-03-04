@@ -85,8 +85,8 @@ const Controls = ({
             onChange={handleChainChange}
             disabled={isRunning}
           >
-            {Object.entries(CHAINS).map(([key, chain]) => (
-              <MenuItem key={key} value={key}>
+            {Object.entries(CHAINS).map(([key, chain],index) => (
+              <MenuItem key={index} value={key}>
                 {chain.name}
               </MenuItem>
             ))}
@@ -99,9 +99,9 @@ const Controls = ({
               Select DEXes
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
-              {Object.entries(DEXES[selectedChain] || {}).map(([key, dex]) => (
+              {Object.entries(DEXES[selectedChain] || {}).map(([key, dex],index) => (
                 <Chip
-                  key={key}
+                  key={index}
                   label={dex.name}
                   onClick={() => handleDexToggle(key)}
                   color={selectedDexes.includes(key) ? 'primary' : 'default'}
@@ -180,8 +180,8 @@ const Controls = ({
                   </Box>
                   {log.metadata && (
                     <Box sx={{ mt: 1, pl: 2 }}>
-                      {Object.entries(log.metadata).map(([key, value]) => (
-                        <Typography key={key} variant="caption" display="block" color="text.secondary">
+                      {Object.entries(log.metadata).map(([key, value],index) => (
+                        <Typography key={index} variant="caption" display="block" color="text.secondary">
                           {key}: {typeof value === 'object' ? JSON.stringify(value) : value}
                         </Typography>
                       ))}
