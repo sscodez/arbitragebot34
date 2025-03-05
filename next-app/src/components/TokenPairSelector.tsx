@@ -114,14 +114,14 @@ const TokenPairSelector: React.FC<TokenPairSelectorProps> = ({
   }, [fromToken, configuredTokens, onSelect]);
 
   return (
-    <div className="flex flex-col gap-4 p-4 border border-gray-700 rounded-lg bg-gray-900">
-      <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-4 p-4 border  rounded-lg ">
+      <div className="flex  flex-col gap-2">
         <label className="flex flex-col text-white">
           From Token:
           <select 
             value={fromToken?.symbol || ''} 
             onChange={handleFromTokenSelect}
-            className="p-2 mt-1 rounded bg-gray-800 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="p-2 mt-1 rounded bg-transparent border  text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">Select token</option>
             {configuredTokens.map((token, index) => (
@@ -137,7 +137,7 @@ const TokenPairSelector: React.FC<TokenPairSelectorProps> = ({
           <select 
             value={toToken?.symbol || ''} 
             onChange={handleToTokenSelect}
-            className="p-2 mt-1 rounded bg-gray-800 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-2 mt-1 rounded bg-transparent border  text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={!fromToken}
           >
             <option value="">Select token</option>
